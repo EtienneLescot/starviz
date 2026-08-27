@@ -77,6 +77,10 @@ dépôts.
   regénérer est optionnel et demande le paquet `iso-codes` (Debian/Ubuntu) :
   `python3 tools/gen_geo.py`.
 
+## Licence
+
+MIT — voir [LICENSE](LICENSE).
+
 ## Désinstallation
 
 ```bash
