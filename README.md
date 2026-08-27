@@ -77,6 +77,28 @@ dépôts.
   regénérer est optionnel et demande le paquet `iso-codes` (Debian/Ubuntu) :
   `python3 tools/gen_geo.py`.
 
+## Relevé des classements « Trending »
+
+GitHub ne notifie pas les passages dans ses classements Trending, n'expose
+aucune API pour les lire, et les archives publiques ne couvrent que la fenêtre
+journalière — un passage hebdomadaire ou mensuel ne laisse donc aucune trace.
+
+```bash
+./starviz --trending
+```
+
+relève votre position dans les six classements (développeurs et dépôts ×
+journalier, hebdomadaire, mensuel) et l'ajoute à
+`~/.cache/starviz/trending.jsonl`, en rappelant le meilleur rang déjà observé.
+
+Un relevé toutes les 3 heures suffit à ne pas rater un pic : le classement est
+recalculé en continu, et une position peut passer de la 15ᵉ à la 1ʳᵉ place en
+une demi-journée.
+
+```bash
+crontab -e   # 0 */3 * * * /chemin/vers/starviz --trending >> $HOME/.cache/starviz/trending.log 2>&1
+```
+
 ## Licence
 
 MIT — voir [LICENSE](LICENSE).

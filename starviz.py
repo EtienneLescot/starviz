@@ -73,6 +73,21 @@ EXTRA_PATHS = [
 ]
 
 
+TRENDING_FILE = CACHE_DIR / "trending.jsonl"
+TRENDING_UA = "starviz (personal rank recorder; https://github.com/EtienneLescot/starviz)"
+# GitHub n'expose ni API ni notification pour ses classements « Trending », et
+# les archives publiques ne couvrent que la fenêtre journalière. On relève donc
+# soi-même les six pages (2 classements × 3 fenêtres). robots.txt ne les
+# interdit pas ; l'attribut href n'est pas le premier du lien, d'où les regex.
+TRENDING_PAGES = {
+    "developer": ("https://github.com/trending/developers",
+                  r'<h1 class="h3 lh-condensed"\s*>\s*<a[^>]*?href="/([A-Za-z0-9._-]+)"'),
+    "repository": ("https://github.com/trending",
+                   r'<h2 class="h3 lh-condensed"\s*>\s*<a[^>]*?href="/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)"'),
+}
+TRENDING_WINDOWS = ("daily", "weekly", "monthly")
+
+
 class GhError(RuntimeError):
     """Erreur remontée par la CLI GitHub, présentable telle quelle à l'écran."""
 
@@ -309,6 +324,62 @@ class Fetcher:
         return events, locations
 
 
+def trending_ranks(login: str, repos: list[str]) -> dict:
+    """Relève la position de l'utilisateur et de ses dépôts dans les 6 classements."""
+    import re
+    releve = {"ts": now_iso(), "developer": {}, "repository": {}}
+    for scope, (base, pattern) in TRENDING_PAGES.items():
+        cibles = [login.lower()] if scope == "developer" else [r.lower() for r in repos]
+        for window in TRENDING_WINDOWS:
+            url = base if window == "daily" else f"{base}?since={window}"
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": TRENDING_UA, "Accept": "text/html"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    html = resp.read().decode("utf-8", "ignore")
+            except (urllib.error.URLError, OSError, TimeoutError) as exc:
+                releve[scope][window] = {"error": str(exc)[:80]}
+                continue
+            noms = [n.lower() for n in re.findall(pattern, html)]
+            trouves = {n: i + 1 for i, n in enumerate(noms) if n in cibles}
+            releve[scope][window] = {"total": len(noms), "ranks": trouves}
+    return releve
+
+
+def record_trending() -> int:
+    """Relève les classements, les journalise, et affiche les meilleurs connus."""
+    login = run_gh(["api", "user", "--jq", ".login"]).strip()
+    cache = read_json(CACHE_FILE) or {}
+    repos = [r["full_name"] for r in cache.get("repos", []) if r.get("stars", 0) > 0]
+    releve = trending_ranks(login, repos)
+
+    TRENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with TRENDING_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(releve, ensure_ascii=False) + "\n")
+
+    historique = []
+    try:
+        for ligne in TRENDING_FILE.read_text("utf-8").splitlines():
+            if ligne.strip():
+                historique.append(json.loads(ligne))
+    except (OSError, ValueError):
+        pass
+
+    print(f"Relevé du {releve['ts']}")
+    for scope, etiquette in (("developer", "développeur"), ("repository", "dépôt")):
+        for window in TRENDING_WINDOWS:
+            actuel = releve[scope].get(window) or {}
+            rangs = actuel.get("ranks") or {}
+            maintenant = ", ".join(f"{k} #{v}" for k, v in rangs.items()) or "absent"
+            meilleurs = [min(h[scope][window]["ranks"].values())
+                         for h in historique
+                         if (h.get(scope, {}).get(window) or {}).get("ranks")]
+            record = f" · meilleur relevé : #{min(meilleurs)}" if meilleurs else ""
+            print(f"  {etiquette:<12} {window:<8} {maintenant}{record}")
+    print(f"\n{len(historique)} relevé(s) dans {TRENDING_FILE}")
+    return 0
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "StarViz"
     protocol_version = "HTTP/1.1"
@@ -463,9 +534,19 @@ def main() -> int:
     parser.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur")
     parser.add_argument("--refresh", action="store_true", help="forcer une récupération complète au démarrage")
     parser.add_argument("--fetch-only", action="store_true", help="mettre à jour le cache puis quitter")
+    parser.add_argument("--trending", action="store_true",
+                        help="relever les classements Trending et les journaliser, puis quitter")
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.trending:
+        try:
+            return record_trending()
+        except GhError as exc:
+            print(f"Échec : {exc}", file=sys.stderr)
+            return 1
+
     fetcher = Fetcher()
 
     if args.fetch_only:
