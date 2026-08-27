@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StarViz — étoiles GitHub</title>
+<link rel="icon" href="/icon.svg">
+<link rel="stylesheet" href="/style.css">
+<script>window.STARVIZ_TOKEN = "__STARVIZ_TOKEN__";</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.6l2.9 5.88 6.5.95-4.7 4.58 1.11 6.47L12 17.43l-5.81 3.05 1.11-6.47L2.6 9.43l6.5-.95L12 2.6z"/></svg>
+    StarViz <span class="login" id="login"></span>
+  </div>
+  <div class="top-actions">
+    <span class="updated" id="updated"></span>
+    <button class="btn" id="refresh" title="Actualiser depuis GitHub (Maj+clic : ignorer le cache)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      Actualiser
+    </button>
+    <button class="btn icon" id="theme" title="Basculer le thème">◐</button>
+    <button class="btn icon" id="quit" title="Fermer StarViz">✕</button>
+  </div>
+</header>
+
+<div class="progress hidden" id="progress">
+  <div class="track indeterminate" id="track"><i id="track-bar"></i></div>
+  <span class="msg" id="progress-msg"></span>
+</div>
+
+<div class="banner hidden" id="error"></div>
+
+<section class="kpis" id="kpis"></section>
+
+<main>
+  <div class="col-main">
+    <section class="card">
+      <div class="toolbar">
+        <div class="seg hidden" id="seg-owner"></div>
+        <div class="seg" id="seg-range">
+          <button data-value="30">30 j</button>
+          <button data-value="90">90 j</button>
+          <button data-value="365">1 an</button>
+          <button data-value="all">Tout</button>
+        </div>
+        <div class="seg" id="seg-mode">
+          <button data-value="cumul">Cumul</button>
+          <button data-value="rate">Par période</button>
+        </div>
+        <div class="seg hidden" id="seg-bucket">
+          <button data-value="auto">Auto</button>
+          <button data-value="day">Jour</button>
+          <button data-value="week">Semaine</button>
+          <button data-value="month">Mois</button>
+        </div>
+        <div class="seg" id="seg-align">
+          <button data-value="date">Par date</button>
+          <button data-value="age">Par âge</button>
+        </div>
+        <span class="spacer"></span>
+        <div class="seg" id="seg-scale">
+          <button data-value="linear">Linéaire</button>
+          <button data-value="log">Log</button>
+        </div>
+      </div>
+      <div class="chart" id="chart"></div>
+      <div class="legend" id="legend"></div>
+      <div class="legend-hint">Clic : afficher/masquer · Alt+clic (ou double-clic) : isoler un dépôt</div>
+    </section>
+
+    <section class="card hidden" id="geo-card">
+      <h2>Géographie des stargazers <span class="h2-sub" id="geo-sub"></span></h2>
+      <div class="geo">
+        <div>
+          <div class="stack" id="geo-stack"></div>
+          <ul class="geo-legend" id="geo-continents"></ul>
+        </div>
+        <ol class="geo-countries" id="geo-countries"></ol>
+      </div>
+    </section>
+
+  </div>
+
+  <aside>
+    <section class="card">
+      <h2>Dépôts</h2>
+      <table class="repos" id="repos">
+        <thead><tr>
+          <th data-sort="name">Dépôt</th>
+          <th data-sort="stars">★</th>
+          <th data-sort="d7">7 j</th>
+          <th data-sort="d30">30 j</th>
+          <th title="Progression sur 90 jours">90 j</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+    <section class="card">
+      <h2>Derniers stargazers</h2>
+      <ul class="recent" id="recent"></ul>
+    </section>
+  </aside>
+</main>
+
+<p class="foot" id="foot"></p>
+<div class="tooltip hidden" id="tooltip"></div>
+
+<script src="/geo-data.js"></script>
+<script src="/geo.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Lanceur StarViz : démarre le serveur local puis ouvre le navigateur.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/starviz"
+mkdir -p "$LOG_DIR"
+
+# Une session graphique n'hérite pas du PATH d'un shell interactif : on complète.
+export PATH="$PATH:/home/linuxbrew/.linuxbrew/bin:$HOME/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/snap/bin"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  command -v notify-send >/dev/null && notify-send -i dialog-error "StarViz" "python3 est introuvable."
+  exit 1
+fi
+
+if ! python3 "$HERE/starviz.py" "$@" >>"$LOG_DIR/starviz.log" 2>&1; then
+  tail -n 20 "$LOG_DIR/starviz.log" >&2
+  command -v notify-send >/dev/null && \
+    notify-send -i dialog-error "StarViz" "Le démarrage a échoué. Détails : $LOG_DIR/starviz.log"
+  exit 1
+fi
