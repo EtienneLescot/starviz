@@ -32,11 +32,16 @@ Python ou JavaScript à installer. Si vous déplacez ce dossier, relancez
 - **Géographie des stargazers** : répartition par continent et top pays, déduite
   du champ « location » des profils (texte libre, environ 40 % des profils le
   renseignent ; ~91 % de ces valeurs sont rattachées à un pays).
-- **Derniers stargazers** avec avatars et liens.
+- **Derniers stargazers** avec avatars, dépôt et localisation.
+- Ces deux panneaux ont leur propre sélecteur : tous les dépôts, ou un seul.
 - Filtre par **compte / organisation**.
 
+Sélection des courbes : « Tout afficher » / « Tout masquer » sous la légende,
+clic sur une pastille pour l'afficher ou la masquer, et « seul » (ou `Alt`+clic)
+pour n'afficher qu'un dépôt.
+
 Raccourcis : `r` actualise, `Maj+r` ignore le cache, `Échap` réaffiche tous les
-dépôts. Clic sur une entrée de légende pour masquer, `Alt`+clic pour isoler.
+dépôts.
 
 ## Utilisation en ligne de commande
 

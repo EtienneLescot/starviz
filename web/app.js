@@ -42,6 +42,8 @@ const state = {
   align: 'date',    // date | age
   scale: 'linear',  // linear | log
   showTotal: true,
+  geoScope: 'all',    // 'all' ou la clé d'un dépôt (carte Géographie)
+  recentScope: 'all', // idem pour la liste des derniers stargazers
   sort: 'stars',
   sortDir: -1,
   fetching: false,
@@ -194,6 +196,21 @@ const ownerSeries = () =>
 const visibleSeries = () => ownerSeries().filter((s) => !state.hidden.has(s.key));
 
 const inScope = (r) => state.owner === 'all' || r.owner === state.owner;
+
+/** Séries d'un panneau latéral : tout le périmètre du compte, ou un seul dépôt. */
+const scopedSeries = (scope) =>
+  scope === 'all' ? ownerSeries() : ownerSeries().filter((s) => s.key === scope);
+
+/** (Re)construit un sélecteur de dépôt, en conservant le choix s'il tient encore. */
+function renderScopeSelect(id, key) {
+  const select = $(id);
+  const series = ownerSeries();
+  if (!series.some((s) => s.key === state[key])) state[key] = 'all';
+  select.innerHTML = `<option value="all">Tous les dépôts (${series.length})</option>` +
+    series.map((s) => `<option value="${esc(s.key)}">${
+      esc(s.repo.is_org && state.owner === 'all' ? s.repo.full_name : s.name)}</option>`).join('');
+  select.value = state[key];
+}
 
 /* ---------------------------------------------------------------- rendu */
 
@@ -576,6 +593,7 @@ function renderLegend() {
     <button data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}" title="${esc(s.repo.description || s.key)}">
       <i class="swatch" style="background:${s.color}"></i>${esc(s.name)}
       <span class="count">${nf.format(s.repo.stars)}</span>
+      <span class="only" title="N'afficher que ce dépôt">seul</span>
     </button>`).join('');
 }
 
@@ -594,9 +612,19 @@ function toggleSeries(key, isolate) {
     else scope.forEach((s) => (s.key === key ? state.hidden.delete(s.key) : state.hidden.add(s.key)));
   } else if (state.hidden.has(key)) {
     state.hidden.delete(key);
-  } else if (visibleSeries().length > 1) {
+  } else {
     state.hidden.add(key);
   }
+  renderChart(false);
+  renderLegend();
+  renderTable();
+}
+
+/** Tout afficher / tout masquer, dans le périmètre du compte sélectionné. */
+function setAllVisible(visible) {
+  ownerSeries().forEach((s) => {
+    if (visible) state.hidden.delete(s.key); else state.hidden.add(s.key);
+  });
   renderChart(false);
   renderLegend();
   renderTable();
@@ -653,8 +681,10 @@ function renderTable() {
 /* --------------------------------------------------- stargazers récents */
 
 function renderRecent() {
+  renderScopeSelect('#recent-scope', 'recentScope');
+  const locations = state.data?.locations || {};
   const events = [];
-  ownerSeries().forEach((s) => {
+  scopedSeries(state.recentScope).forEach((s) => {
     s.repo.events.forEach((e) => events.push({ t: Date.parse(e[0]), login: e[1], repo: s.repo, color: s.color }));
   });
   events.sort((a, b) => b.t - a.t);
@@ -664,7 +694,8 @@ function renderRecent() {
       <div class="col">
         <div class="who"><a href="https://github.com/${encodeURIComponent(e.login)}" target="_blank" rel="noreferrer">${esc(e.login)}</a></div>
         <div class="meta"><a href="${esc(e.repo.url)}" target="_blank" rel="noreferrer">${
-          esc(e.repo.is_org ? e.repo.full_name : e.repo.name)}</a></div>
+          esc(e.repo.is_org ? e.repo.full_name : e.repo.name)}</a>${
+          locations[e.login] ? ' · ' + esc(locations[e.login]) : ''}</div>
       </div>
       <time title="${fmtStamp.format(new Date(e.t))}">${relTime(e.t)}</time>
     </li>`).join('') || '<li class="empty-state">Aucun stargazer.</li>';
@@ -677,9 +708,10 @@ const CONTINENT_COLORS = { EU: '#38bdf8', AS: '#f5b301', NA: '#34d399', SA: '#f4
 
 function renderGeo() {
   const card = $('#geo-card');
+  renderScopeSelect('#geo-scope', 'geoScope');
   const locations = state.data?.locations || {};
   const users = new Set();
-  ownerSeries().forEach((s) => s.repo.events.forEach((e) => users.add(e[1])));
+  scopedSeries(state.geoScope).forEach((s) => s.repo.events.forEach((e) => users.add(e[1])));
 
   const byCountry = new Map(), byContinent = new Map();
   let located = 0;
@@ -692,11 +724,18 @@ function renderGeo() {
     byContinent.set(info.continent, (byContinent.get(info.continent) || 0) + 1);
   });
 
-  if (!located) { card.classList.add('hidden'); return; }
-  card.classList.remove('hidden');
+  card.classList.toggle('hidden', users.size === 0);
+  $('#geo-body').classList.toggle('hidden', !located);
+  $('#geo-empty').classList.toggle('hidden', !!located);
+  if (!located) {
+    $('#geo-sub').textContent =
+      `aucune localisation sur ${nf.format(users.size)} profil${users.size > 1 ? 's' : ''}`;
+    $('#geo-countries').innerHTML = $('#geo-continents').innerHTML = $('#geo-stack').innerHTML = '';
+    return;
+  }
   const pct = (n) => (100 * n / located).toFixed(n / located >= 0.1 ? 0 : 1) + ' %';
   $('#geo-sub').textContent =
-    `${nf.format(located)} profils localisés sur ${nf.format(users.size)} (${Math.round(100 * located / users.size)} %)`;
+    `${nf.format(located)} localisés sur ${nf.format(users.size)} (${Math.round(100 * located / users.size)} %)`;
 
   const continents = [...byContinent].sort((a, b) => b[1] - a[1]);
   $('#geo-stack').innerHTML = continents.map(([code, n]) =>
@@ -824,7 +863,7 @@ function restore() {
   const saved = localStorage.getItem('starviz.theme');
   document.documentElement.dataset.theme =
     saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  ['owner', 'range', 'mode', 'bucket', 'align', 'scale'].forEach((k) => {
+  ['owner', 'range', 'mode', 'bucket', 'align', 'scale', 'geoScope', 'recentScope'].forEach((k) => {
     const v = localStorage.getItem('starviz.' + k);
     if (v) state[k] = v;
   });
@@ -848,10 +887,23 @@ function bindUI() {
     stopPolling();
   });
 
+  $('#geo-scope').addEventListener('change', (e) => {
+    state.geoScope = e.target.value;
+    localStorage.setItem('starviz.geoScope', state.geoScope);
+    renderGeo();
+  });
+  $('#recent-scope').addEventListener('change', (e) => {
+    state.recentScope = e.target.value;
+    localStorage.setItem('starviz.recentScope', state.recentScope);
+    renderRecent();
+  });
+
   $('#legend').addEventListener('click', (e) => {
     const btn = e.target.closest('button');
-    if (btn) toggleSeries(btn.dataset.key, e.altKey);
+    if (btn) toggleSeries(btn.dataset.key, e.altKey || e.target.classList.contains('only'));
   });
+  $('#show-all').addEventListener('click', () => setAllVisible(true));
+  $('#hide-all').addEventListener('click', () => setAllVisible(false));
   $('#legend').addEventListener('dblclick', (e) => {
     const btn = e.target.closest('button');
     if (btn) toggleSeries(btn.dataset.key, true);

@@ -68,12 +68,19 @@
       </div>
       <div class="chart" id="chart"></div>
       <div class="legend" id="legend"></div>
-      <div class="legend-hint">Clic : afficher/masquer · Alt+clic (ou double-clic) : isoler un dépôt</div>
+      <div class="legend-hint">
+        <button class="mini" id="show-all">Tout afficher</button>
+        <button class="mini" id="hide-all">Tout masquer</button>
+        <span>Clic : afficher/masquer · « seul » (ou Alt+clic) : n'afficher que ce dépôt</span>
+      </div>
     </section>
 
     <section class="card hidden" id="geo-card">
-      <h2>Géographie des stargazers <span class="h2-sub" id="geo-sub"></span></h2>
-      <div class="geo">
+      <h2>Géographie <span class="h2-sub" id="geo-sub"></span>
+        <select class="scope" id="geo-scope" title="Restreindre à un dépôt"></select>
+      </h2>
+      <p class="empty-state hidden" id="geo-empty">Aucune localisation renseignée.</p>
+      <div class="geo" id="geo-body">
         <div>
           <div class="stack" id="geo-stack"></div>
           <ul class="geo-legend" id="geo-continents"></ul>
@@ -99,7 +106,9 @@
       </table>
     </section>
     <section class="card">
-      <h2>Derniers stargazers</h2>
+      <h2>Derniers stargazers
+        <select class="scope" id="recent-scope" title="Restreindre à un dépôt"></select>
+      </h2>
       <ul class="recent" id="recent"></ul>
     </section>
   </aside>
