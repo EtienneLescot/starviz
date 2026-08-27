@@ -134,30 +134,31 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; pa
 .swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
 
 /* ---------- légende ---------- */
-.legend { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; border-top: 1px solid var(--line); }
-.legend button {
-  display: inline-flex; align-items: center; gap: 7px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 99px;
-  padding: 4px 11px 4px 8px; font-size: 12.5px; transition: opacity .15s;
-}
-.legend button.off { opacity: .38; }
-.legend button:hover { border-color: var(--accent); }
-.legend .count { color: var(--muted); font-variant-numeric: tabular-nums; }
-.legend-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
-               color: var(--muted); font-size: 11.5px; padding: 0 14px 12px; }
-.legend-hint .lbl { color: var(--text); }
-.legend-hint .actions { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+/* La légende est une clé de lecture du graphe, pas un sélecteur : la
+   sélection se fait uniquement dans le panneau « Dépôts ». */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 11px 15px;
+          border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+.legend .key { display: inline-flex; align-items: center; gap: 7px; }
+.legend .swatch.dashed { background: repeating-linear-gradient(90deg, var(--text) 0 4px, transparent 4px 7px); opacity: .6; }
+.select-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px;
+              padding: 10px 13px; border-top: 1px solid var(--line);
+              color: var(--muted); font-size: 11.5px; }
+.select-bar .lbl { color: var(--text); }
+.select-bar .actions { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.select-bar .tip { flex-basis: 100%; }
 .mini { background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
         padding: 3px 9px; font-size: 11.5px; color: var(--text); }
 .mini:hover { border-color: var(--accent); background: var(--accent-soft); }
 .mini[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
                              color: #10131a; font-weight: 600; }
 :root[data-theme="light"] .mini[aria-pressed="true"] { color: #fff; }
-/* « seul » : isole le dépôt sans avoir à masquer tous les autres à la main. */
-.legend .only { margin-left: 2px; padding: 1px 5px; border-radius: 5px; font-size: 10.5px;
-                color: var(--muted); border: 1px solid transparent; opacity: 0; transition: opacity .12s; }
-.legend button:hover .only { opacity: 1; border-color: var(--line); }
-.legend .only:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+/* Pastille de couleur du tableau : elle sert de case à cocher. */
+.repo-check { position: relative; flex: none; width: 13px; height: 13px; padding: 0; border-radius: 4px;
+              border: 1.5px solid var(--c); background: transparent; transition: background .12s; }
+/* Zone cliquable élargie sans toucher à la mise en page. */
+.repo-check::after { content: ''; position: absolute; inset: -7px; }
+.repo-check.on { background: var(--c); }
+.repo-check:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ---------- tableau des dépôts ---------- */
 /* table-layout: fixed — sinon la largeur minimale du contenu (~430 px) déborde

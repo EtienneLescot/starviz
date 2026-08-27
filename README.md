@@ -40,12 +40,14 @@ Il n'y a qu'une sélection de dépôts, et elle pilote tout : indicateurs, graph
 géographie et derniers stargazers. Chaque panneau rappelle son périmètre dans
 son titre, et la sélection est mémorisée d'une session à l'autre.
 
-Tout se fait au même endroit, sous le graphe : les pastilles de légende (clic
-pour afficher / masquer, « seul » au survol — ou `Alt`+clic — pour n'en garder
-qu'une) et, juste en dessous, les raccourcis « Tous », « Aucun » et un par
-compte ou organisation. Les lignes du tableau des dépôts reflètent la même
-sélection et se cliquent aussi. La barre d'outils du graphe, elle, ne contient
-que des options d'affichage.
+Elle se fait dans un seul panneau, « Dépôts » : un clic sur une ligne n'affiche
+que ce dépôt (un second clic rétablit tout), un clic sur sa pastille de couleur
+l'ajoute ou le retire, et la barre du bas offre les raccourcis « Tous »,
+« Aucun » et un par compte ou organisation.
+
+La légende sous le graphe est une simple clé de couleurs — elle liste ce qui est
+tracé et ne se clique pas. La barre d'outils du graphe ne contient que des
+options d'affichage.
 
 Raccourcis : `r` actualise, `Maj+r` ignore le cache, `Échap` réaffiche tous les
 dépôts.

@@ -60,6 +60,7 @@
           <button data-value="age">Par âge</button>
         </div>
         <span class="spacer"></span>
+        <div class="seg" id="seg-total"><button data-value="total">Total</button></div>
         <div class="seg" id="seg-scale">
           <button data-value="linear">Linéaire</button>
           <button data-value="log">Log</button>
@@ -67,11 +68,6 @@
       </div>
       <div class="chart" id="chart"></div>
       <div class="legend" id="legend"></div>
-      <div class="legend-hint">
-        <span class="lbl">Sélection :</span>
-        <span class="actions" id="legend-actions"></span>
-        <span>clic : afficher / masquer · « seul » (ou Alt+clic) : n'afficher que ce dépôt</span>
-      </div>
     </section>
 
     <section class="card hidden" id="geo-card">
@@ -101,6 +97,12 @@
         </tr></thead>
         <tbody></tbody>
       </table>
+      <div class="select-bar">
+        <span class="lbl">Sélection :</span>
+        <span class="actions" id="select-actions"></span>
+        <span class="tip">clic sur une ligne : n'afficher que ce dépôt · clic sur la
+          pastille de couleur : l'ajouter ou le retirer</span>
+      </div>
     </section>
     <section class="card">
       <h2>Derniers stargazers <span class="h2-sub" id="recent-sub"></span></h2>

@@ -593,34 +593,22 @@ function renderPresets() {
     })) : []),
     { value: 'none', label: 'Aucun', keys: [] },
   ];
-  $('#legend-actions').innerHTML = shortcuts.map((sc) =>
+  $('#select-actions').innerHTML = shortcuts.map((sc) =>
     `<button class="mini" data-select="${esc(sc.value)}" aria-pressed="${matches(sc.keys)}">${
       esc(sc.label)}</button>`).join('');
 }
 
 function renderLegend() {
-  const series = state.series;
-  const totalChip = state.mode === 'cumul' && visibleSeries().length > 1 ? `
-    <button data-key="__total__" class="${state.showTotal ? '' : 'off'}" title="Somme des dépôts affichés">
-      <i class="swatch" style="background:repeating-linear-gradient(90deg,var(--text) 0 4px,transparent 4px 7px);opacity:.6"></i>Total
-      <span class="count">${nf.format(visibleSeries().reduce((a, s) => a + s.repo.stars, 0))}</span>
-    </button>` : '';
-  $('#legend').innerHTML = totalChip + series.map((s) => `
-    <button data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}" title="${esc(s.repo.description || s.key)}">
-      <i class="swatch" style="background:${s.color}"></i>${esc(s.name)}
-      <span class="count">${nf.format(s.repo.stars)}</span>
-      <span class="only" title="N'afficher que ce dépôt">seul</span>
-    </button>`).join('');
+  const vis = visibleSeries();
+  const keys = vis.map((s) => `<span class="key"><i class="swatch" style="background:${s.color}"></i>${
+    esc(s.name)}</span>`);
+  if (state.mode === 'cumul' && state.showTotal && vis.length > 1) {
+    keys.unshift('<span class="key"><i class="swatch dashed"></i>Total</span>');
+  }
+  $('#legend').innerHTML = keys.join('') || '<span class="key">Aucun dépôt sélectionné.</span>';
 }
 
 function toggleSeries(key, isolate) {
-  if (key === '__total__') {
-    state.showTotal = !state.showTotal;
-    localStorage.setItem('starviz.showTotal', String(state.showTotal));
-    renderChart(false);
-    renderLegend();
-    return;
-  }
   if (isolate) {
     const alone = visibleSeries().length === 1 && !state.hidden.has(key);
     state.hidden = alone ? new Set()
@@ -669,9 +657,11 @@ function renderTable() {
 
   $('#repos tbody').innerHTML = rows.map(({ s, stars, d7, d30 }) => {
     const sp = sparkline(s.times);
-    return `<tr data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}"
-      title="${esc(s.repo.full_name)} — clic pour afficher/masquer">
-      <td><div class="repo-name"><i class="swatch" style="background:${s.color}"></i>
+    const on = !state.hidden.has(s.key);
+    return `<tr data-key="${esc(s.key)}" class="${on ? '' : 'off'}"
+      title="${esc(s.repo.full_name)} — clic : n'afficher que ce dépôt">
+      <td><div class="repo-name"><button class="repo-check${on ? ' on' : ''}" style="--c:${s.color}"
+          aria-pressed="${on}" title="Ajouter ou retirer ce dépôt de la sélection"></button>
         <span>${esc(s.name)}</span>
         ${s.repo.is_org ? `<i class="tag">${esc(s.repo.owner)}</i>` : ''}
         ${s.repo.private ? '<i class="tag">privé</i>' : ''}${s.repo.fork ? '<i class="tag">fork</i>' : ''}</div></td>
@@ -850,6 +840,8 @@ function setTheme(theme) {
 function syncModeUI() {
   $('#seg-bucket').classList.toggle('hidden', state.mode !== 'rate');
   $('#seg-scale').classList.toggle('hidden', state.mode !== 'cumul');
+  $('#seg-total').classList.toggle('hidden', state.mode !== 'cumul');
+  $('#seg-total button').setAttribute('aria-pressed', String(state.showTotal));
 }
 
 function syncSeg(seg, key) {
@@ -882,7 +874,7 @@ function restore() {
 }
 
 function bindUI() {
-  $('#legend-actions').addEventListener('click', (e) => {
+  $('#select-actions').addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
     const value = btn.dataset.select;
@@ -893,6 +885,13 @@ function bindUI() {
   bindSeg('#seg-range', 'range', () => { renderChart(false); renderLegend(); });
   bindSeg('#seg-mode', 'mode', () => { syncModeUI(); renderChart(false); renderLegend(); });
   bindSeg('#seg-bucket', 'bucket', () => renderChart(false));
+  $('#seg-total').addEventListener('click', () => {
+    state.showTotal = !state.showTotal;
+    localStorage.setItem('starviz.showTotal', String(state.showTotal));
+    syncModeUI();
+    renderChart(false);
+    renderLegend();
+  });
   bindSeg('#seg-align', 'align', () => { renderChart(false); renderLegend(); });
   bindSeg('#seg-scale', 'scale', () => { renderChart(false); renderLegend(); });
 
@@ -905,18 +904,12 @@ function bindUI() {
     stopPolling();
   });
 
-  $('#legend').addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (btn) toggleSeries(btn.dataset.key, e.altKey || e.target.classList.contains('only'));
-  });
-  $('#legend').addEventListener('dblclick', (e) => {
-    const btn = e.target.closest('button');
-    if (btn) toggleSeries(btn.dataset.key, true);
-  });
+  // Deux gestes, un seul sélecteur : la pastille ajoute ou retire un dépôt,
+  // le reste de la ligne n'affiche que celui-ci (et rétablit tout au second clic).
   $('#repos tbody').addEventListener('click', (e) => {
     if (e.target.closest('a')) return;
     const tr = e.target.closest('tr');
-    if (tr) toggleSeries(tr.dataset.key, e.altKey || e.metaKey);
+    if (tr) toggleSeries(tr.dataset.key, !e.target.closest('.repo-check'));
   });
   document.querySelectorAll('#repos th[data-sort]').forEach((th) => {
     th.addEventListener('click', () => {
