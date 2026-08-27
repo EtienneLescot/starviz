@@ -272,6 +272,12 @@ def norm(text: str) -> str:
 
 
 def main() -> None:
+    if not ISO_JSON.exists():
+        raise SystemExit(
+            f"{ISO_JSON} est introuvable : installez le paquet « iso-codes »\n"
+            "(Debian/Ubuntu : sudo apt install iso-codes). Le fichier web/geo-data.js\n"
+            "déjà versionné reste utilisable tel quel, cette étape est optionnelle."
+        )
     entries = json.loads(ISO_JSON.read_text("utf-8"))["3166-1"]
     french = gettext.translation("iso_3166-1", "/usr/share/locale", languages=["fr"], fallback=True)
 

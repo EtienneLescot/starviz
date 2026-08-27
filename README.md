@@ -73,8 +73,9 @@ dépôts.
 - Le serveur n'écoute que sur `127.0.0.1`, protège son API par un jeton
   aléatoire régénéré à chaque démarrage, et s'arrête tout seul trois minutes
   après la fermeture de l'onglet.
-- Les tables géographiques (`web/geo-data.js`) sont générées depuis la base ISO
-  3166 du système : `python3 tools/gen_geo.py`.
+- Les tables géographiques (`web/geo-data.js`) sont versionnées ; les
+  regénérer est optionnel et demande le paquet `iso-codes` (Debian/Ubuntu) :
+  `python3 tools/gen_geo.py`.
 
 ## Désinstallation
 
