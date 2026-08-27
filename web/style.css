@@ -145,9 +145,14 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; pa
 .legend .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .legend-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
                color: var(--muted); font-size: 11.5px; padding: 0 14px 12px; }
+.legend-hint .lbl { color: var(--text); }
+.legend-hint .actions { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .mini { background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
         padding: 3px 9px; font-size: 11.5px; color: var(--text); }
 .mini:hover { border-color: var(--accent); background: var(--accent-soft); }
+.mini[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
+                             color: #10131a; font-weight: 600; }
+:root[data-theme="light"] .mini[aria-pressed="true"] { color: #fff; }
 /* « seul » : isole le dépôt sans avoir à masquer tous les autres à la main. */
 .legend .only { margin-left: 2px; padding: 1px 5px; border-radius: 5px; font-size: 10.5px;
                 color: var(--muted); border: 1px solid transparent; opacity: 0; transition: opacity .12s; }

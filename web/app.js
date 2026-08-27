@@ -581,20 +581,21 @@ function clearHover() {
 /* ------------------------------------------------------------- légende */
 
 function renderPresets() {
-  const seg = $('#seg-owner');
   const owners = [...new Set(state.series.map((s) => s.repo.owner))];
-  if (owners.length < 2) { seg.classList.add('hidden'); return; }
-  seg.classList.remove('hidden');
-
-  // Un raccourci est « actif » quand la sélection lui correspond exactement.
   const selected = new Set(visibleSeries().map((s) => s.key));
   const matches = (keys) => keys.length === selected.size && keys.every((k) => selected.has(k));
-  const active = matches(state.series.map((s) => s.key)) ? 'all'
-    : owners.find((o) => matches(state.series.filter((s) => s.repo.owner === o).map((s) => s.key)));
 
-  seg.innerHTML = ['all', ...owners].map((o) =>
-    `<button data-value="${esc(o)}" aria-pressed="${o === active}">${
-      o === 'all' ? 'Tous' : esc(o)}</button>`).join('');
+  const shortcuts = [
+    { value: 'all', label: 'Tous', keys: state.series.map((s) => s.key) },
+    ...(owners.length > 1 ? owners.map((o) => ({
+      value: o, label: o,
+      keys: state.series.filter((s) => s.repo.owner === o).map((s) => s.key),
+    })) : []),
+    { value: 'none', label: 'Aucun', keys: [] },
+  ];
+  $('#legend-actions').innerHTML = shortcuts.map((sc) =>
+    `<button class="mini" data-select="${esc(sc.value)}" aria-pressed="${matches(sc.keys)}">${
+      esc(sc.label)}</button>`).join('');
 }
 
 function renderLegend() {
@@ -881,11 +882,11 @@ function restore() {
 }
 
 function bindUI() {
-  $('#seg-owner').addEventListener('click', (e) => {
+  $('#legend-actions').addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
-    const value = btn.dataset.value;
-    selectSeries(state.series
+    const value = btn.dataset.select;
+    selectSeries(value === 'none' ? [] : state.series
       .filter((s) => value === 'all' || s.repo.owner === value)
       .map((s) => s.key));
   });
@@ -908,8 +909,6 @@ function bindUI() {
     const btn = e.target.closest('button');
     if (btn) toggleSeries(btn.dataset.key, e.altKey || e.target.classList.contains('only'));
   });
-  $('#show-all').addEventListener('click', () => setAllVisible(true));
-  $('#hide-all').addEventListener('click', () => setAllVisible(false));
   $('#legend').addEventListener('dblclick', (e) => {
     const btn = e.target.closest('button');
     if (btn) toggleSeries(btn.dataset.key, true);
