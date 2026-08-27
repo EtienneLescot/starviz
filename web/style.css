@@ -94,10 +94,6 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; pa
            color: var(--muted); border-bottom: 1px solid var(--line);
            display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: 41px; }
 .card h2 .h2-sub { min-width: 0; }
-.scope { margin-left: auto; max-width: 58%; font: inherit; font-size: 11.5px; text-transform: none;
-         letter-spacing: 0; color: var(--text); background: var(--panel-2);
-         border: 1px solid var(--line); border-radius: 7px; padding: 3px 6px; cursor: pointer; }
-.scope:hover, .scope:focus { border-color: var(--accent); outline: none; }
 
 /* ---------- barre d'outils du graphe ---------- */
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
@@ -228,9 +224,6 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; pa
   .seg button { padding: 5px 9px; }
   .geo { padding: 13px 13px 16px; gap: 16px; }
   .kpi .value { font-size: 22px; }
-}
-@media (max-width: 520px) {
-  .scope { max-width: 100%; }
 }
 @media (max-width: 480px) {
   /* Cinq groupes de boutons : on resserre pour limiter le nombre de lignes. */

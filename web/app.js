@@ -35,15 +35,12 @@ const state = {
   data: null,
   series: [],
   hidden: new Set(),
-  owner: 'all',     // 'all' ou un compte / une organisation
   range: 'all',     // 30 | 90 | 365 | all
   mode: 'cumul',    // cumul | rate
   bucket: 'auto',   // auto | day | week | month (pas des bâtons)
   align: 'date',    // date | age
   scale: 'linear',  // linear | log
   showTotal: true,
-  geoScope: 'all',    // 'all' ou la clé d'un dépôt (carte Géographie)
-  recentScope: 'all', // idem pour la liste des derniers stargazers
   sort: 'stars',
   sortDir: -1,
   fetching: false,
@@ -175,6 +172,15 @@ function timeTicks(t0, t1, target) {
 const palette = () =>
   PALETTES[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 
+/** Restaure la sélection mémorisée, en ignorant les dépôts disparus. */
+function restoreSelection() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem('starviz.hidden') || '[]'); } catch { saved = []; }
+  const known = new Set(state.series.map((s) => s.key));
+  state.hidden = new Set(saved.filter((k) => known.has(k)));
+  if (state.hidden.size === known.size) state.hidden.clear();  // jamais tout masqué au démarrage
+}
+
 function buildSeries() {
   const repos = (state.data?.repos || []).filter((r) => r.events && r.events.length);
   repos.sort((a, b) => b.stars - a.stars || a.name.localeCompare(b.name));
@@ -188,34 +194,39 @@ function buildSeries() {
   }));
 }
 
-/** Séries du compte sélectionné (filtre organisation). */
-const ownerSeries = () =>
-  state.series.filter((s) => state.owner === 'all' || s.repo.owner === state.owner);
+/** LA sélection : les dépôts cochés dans la légende / le tableau.
+ *  Tous les panneaux (indicateurs, graphe, géographie, stargazers) en
+ *  découlent — il n'existe pas d'autre filtre. */
+const visibleSeries = () => state.series.filter((s) => !state.hidden.has(s.key));
 
-/** Séries réellement tracées : périmètre du compte, moins celles masquées. */
-const visibleSeries = () => ownerSeries().filter((s) => !state.hidden.has(s.key));
-
-const inScope = (r) => state.owner === 'all' || r.owner === state.owner;
-
-/** Séries d'un panneau latéral : tout le périmètre du compte, ou un seul dépôt. */
-const scopedSeries = (scope) =>
-  scope === 'all' ? ownerSeries() : ownerSeries().filter((s) => s.key === scope);
-
-/** (Re)construit un sélecteur de dépôt, en conservant le choix s'il tient encore. */
-function renderScopeSelect(id, key) {
-  const select = $(id);
-  const series = ownerSeries();
-  if (!series.some((s) => s.key === state[key])) state[key] = 'all';
-  select.innerHTML = `<option value="all">Tous les dépôts (${series.length})</option>` +
-    series.map((s) => `<option value="${esc(s.key)}">${
-      esc(s.repo.is_org && state.owner === 'all' ? s.repo.full_name : s.name)}</option>`).join('');
-  select.value = state[key];
+/** Résumé de la sélection, affiché en tête de chaque panneau. */
+function scopeLabel(long) {
+  const count = visibleSeries().length;
+  const total = state.series.length;
+  if (!count) return 'aucun dépôt';
+  if (count === total) return long ? `les ${total} dépôts` : 'tous les dépôts';
+  if (count === 1) {
+    const only = visibleSeries()[0];
+    return long ? `1 dépôt : ${only.name}` : only.name;
+  }
+  return long ? `${count} dépôts sur ${total}` : `${count} dépôts`;
 }
+
+/** Applique une sélection d'un bloc (raccourcis « Tous » / un compte). */
+function selectSeries(keys) {
+  const keep = new Set(keys);
+  state.hidden = new Set(state.series.filter((s) => !keep.has(s.key)).map((s) => s.key));
+  saveSelection();
+  renderAll(false);
+}
+
+const saveSelection = () =>
+  localStorage.setItem('starviz.hidden', JSON.stringify([...state.hidden]));
 
 /* ---------------------------------------------------------------- rendu */
 
 function renderAll(animate) {
-  renderOwners();
+  renderPresets();
   renderHeader();
   renderKpis();
   renderChart(animate);
@@ -233,20 +244,18 @@ function renderHeader() {
     $('#updated').textContent = 'Mis à jour ' + relTime(t);
     $('#updated').title = fmtStamp.format(new Date(t));
   }
-  const total = (d?.repos || []).filter(inScope).length;
-  const shown = ownerSeries().length;
   const orgs = (d?.orgs || []).length;
   $('#foot').textContent = d
-    ? `${shown} dépôt(s) étoilé(s) sur ${total} · compte @${d.login}` +
+    ? `${state.series.length} dépôt(s) étoilé(s) sur ${d.repos.length} · compte @${d.login}` +
       (orgs ? ` + ${orgs} organisation(s)` : '') + ' · via gh · StarViz'
     : '';
 }
 
 function renderKpis() {
   const now = Date.now();
-  const scope = ownerSeries();
+  const scope = visibleSeries();
   const all = scope.flatMap((s) => s.times);
-  const totalStars = (state.data?.repos || []).filter(inScope).reduce((a, r) => a + r.stars, 0);
+  const totalStars = scope.reduce((a, s) => a + s.repo.stars, 0);
   const inLast = (days) => all.reduce((a, t) => a + (t >= now - days * DAY ? 1 : 0), 0);
 
   const byDay = new Map();
@@ -258,7 +267,7 @@ function renderKpis() {
   const d7 = inLast(7), d30 = inLast(30);
 
   const tiles = [
-    { label: 'Étoiles', value: nf.format(totalStars), sub: `${scope.length} dépôts étoilés` },
+    { label: 'Étoiles', value: nf.format(totalStars), sub: scopeLabel(true) },
     { label: '7 derniers jours', value: (d7 ? '+' : '') + nf.format(d7), pos: d7 > 0,
       sub: `${(d7 / 7).toFixed(1)} par jour` },
     { label: '30 derniers jours', value: (d30 ? '+' : '') + nf.format(d30), pos: d30 > 0,
@@ -352,7 +361,7 @@ function renderChart(animate) {
     return;
   }
   if (!vis.length) {
-    host.innerHTML = `<svg><text class="empty" x="50%" y="50%" text-anchor="middle">Tous les dépôts sont masqués.</text></svg>`;
+    host.innerHTML = `<svg><text class="empty" x="50%" y="50%" text-anchor="middle">Aucun dépôt sélectionné.</text></svg>`;
     return;
   }
 
@@ -571,25 +580,31 @@ function clearHover() {
 
 /* ------------------------------------------------------------- légende */
 
-function renderOwners() {
+function renderPresets() {
   const seg = $('#seg-owner');
   const owners = [...new Set(state.series.map((s) => s.repo.owner))];
-  if (owners.length < 2) { seg.classList.add('hidden'); state.owner = 'all'; return; }
-  if (state.owner !== 'all' && !owners.includes(state.owner)) state.owner = 'all';
+  if (owners.length < 2) { seg.classList.add('hidden'); return; }
   seg.classList.remove('hidden');
+
+  // Un raccourci est « actif » quand la sélection lui correspond exactement.
+  const selected = new Set(visibleSeries().map((s) => s.key));
+  const matches = (keys) => keys.length === selected.size && keys.every((k) => selected.has(k));
+  const active = matches(state.series.map((s) => s.key)) ? 'all'
+    : owners.find((o) => matches(state.series.filter((s) => s.repo.owner === o).map((s) => s.key)));
+
   seg.innerHTML = ['all', ...owners].map((o) =>
-    `<button data-value="${esc(o)}">${o === 'all' ? 'Tous' : esc(o)}</button>`).join('');
-  syncSeg(seg, 'owner');
+    `<button data-value="${esc(o)}" aria-pressed="${o === active}">${
+      o === 'all' ? 'Tous' : esc(o)}</button>`).join('');
 }
 
 function renderLegend() {
-  const scope = ownerSeries();
-  const totalChip = state.mode === 'cumul' && scope.length > 1 ? `
+  const series = state.series;
+  const totalChip = state.mode === 'cumul' && visibleSeries().length > 1 ? `
     <button data-key="__total__" class="${state.showTotal ? '' : 'off'}" title="Somme des dépôts affichés">
       <i class="swatch" style="background:repeating-linear-gradient(90deg,var(--text) 0 4px,transparent 4px 7px);opacity:.6"></i>Total
-      <span class="count">${nf.format(scope.filter((s) => !state.hidden.has(s.key)).reduce((a, s) => a + s.repo.stars, 0))}</span>
+      <span class="count">${nf.format(visibleSeries().reduce((a, s) => a + s.repo.stars, 0))}</span>
     </button>` : '';
-  $('#legend').innerHTML = totalChip + scope.map((s) => `
+  $('#legend').innerHTML = totalChip + series.map((s) => `
     <button data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}" title="${esc(s.repo.description || s.key)}">
       <i class="swatch" style="background:${s.color}"></i>${esc(s.name)}
       <span class="count">${nf.format(s.repo.stars)}</span>
@@ -605,29 +620,22 @@ function toggleSeries(key, isolate) {
     renderLegend();
     return;
   }
-  const scope = ownerSeries();
   if (isolate) {
     const alone = visibleSeries().length === 1 && !state.hidden.has(key);
-    if (alone) scope.forEach((s) => state.hidden.delete(s.key));
-    else scope.forEach((s) => (s.key === key ? state.hidden.delete(s.key) : state.hidden.add(s.key)));
+    state.hidden = alone ? new Set()
+      : new Set(state.series.filter((s) => s.key !== key).map((s) => s.key));
   } else if (state.hidden.has(key)) {
     state.hidden.delete(key);
   } else {
     state.hidden.add(key);
   }
-  renderChart(false);
-  renderLegend();
-  renderTable();
+  saveSelection();
+  renderAll(false);
 }
 
 /** Tout afficher / tout masquer, dans le périmètre du compte sélectionné. */
 function setAllVisible(visible) {
-  ownerSeries().forEach((s) => {
-    if (visible) state.hidden.delete(s.key); else state.hidden.add(s.key);
-  });
-  renderChart(false);
-  renderLegend();
-  renderTable();
+  selectSeries(visible ? state.series.map((s) => s.key) : []);
 }
 
 /* ------------------------------------------------------- tableau dépôts */
@@ -646,7 +654,8 @@ function sparkline(times, w = 62, h = 20) {
 
 function renderTable() {
   const now = Date.now();
-  const rows = ownerSeries().map((s) => ({
+  $('#repos-sub').textContent = state.hidden.size ? scopeLabel(false) + ' sélectionné(s)' : '';
+  const rows = state.series.map((s) => ({
     s,
     stars: s.repo.stars,
     d7: countBetween(s.times, now - 7 * DAY, now),
@@ -659,10 +668,11 @@ function renderTable() {
 
   $('#repos tbody').innerHTML = rows.map(({ s, stars, d7, d30 }) => {
     const sp = sparkline(s.times);
-    return `<tr data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}">
+    return `<tr data-key="${esc(s.key)}" class="${state.hidden.has(s.key) ? 'off' : ''}"
+      title="${esc(s.repo.full_name)} — clic pour afficher/masquer">
       <td><div class="repo-name"><i class="swatch" style="background:${s.color}"></i>
-        <span title="${esc(s.repo.description || s.key)}">${esc(s.name)}</span>
-        ${s.repo.is_org && state.owner === 'all' ? `<i class="tag">${esc(s.repo.owner)}</i>` : ''}
+        <span>${esc(s.name)}</span>
+        ${s.repo.is_org ? `<i class="tag">${esc(s.repo.owner)}</i>` : ''}
         ${s.repo.private ? '<i class="tag">privé</i>' : ''}${s.repo.fork ? '<i class="tag">fork</i>' : ''}</div></td>
       <td>${nf.format(stars)}</td>
       <td class="delta${d7 ? ' pos' : ''}">${d7 ? '+' + d7 : '·'}</td>
@@ -681,11 +691,11 @@ function renderTable() {
 /* --------------------------------------------------- stargazers récents */
 
 function renderRecent() {
-  renderScopeSelect('#recent-scope', 'recentScope');
+  $('#recent-sub').textContent = scopeLabel(false);
   const locations = state.data?.locations || {};
   const events = [];
-  scopedSeries(state.recentScope).forEach((s) => {
-    s.repo.events.forEach((e) => events.push({ t: Date.parse(e[0]), login: e[1], repo: s.repo, color: s.color }));
+  visibleSeries().forEach((s) => {
+    s.repo.events.forEach((e) => events.push({ t: Date.parse(e[0]), login: e[1], repo: s.repo }));
   });
   events.sort((a, b) => b.t - a.t);
   $('#recent').innerHTML = events.slice(0, 40).map((e) => `
@@ -698,7 +708,7 @@ function renderRecent() {
           locations[e.login] ? ' · ' + esc(locations[e.login]) : ''}</div>
       </div>
       <time title="${fmtStamp.format(new Date(e.t))}">${relTime(e.t)}</time>
-    </li>`).join('') || '<li class="empty-state">Aucun stargazer.</li>';
+    </li>`).join('') || '<li class="empty-state">Aucun dépôt sélectionné.</li>';
 }
 
 /* ---------------------------------------------------------- géographie */
@@ -708,10 +718,9 @@ const CONTINENT_COLORS = { EU: '#38bdf8', AS: '#f5b301', NA: '#34d399', SA: '#f4
 
 function renderGeo() {
   const card = $('#geo-card');
-  renderScopeSelect('#geo-scope', 'geoScope');
   const locations = state.data?.locations || {};
   const users = new Set();
-  scopedSeries(state.geoScope).forEach((s) => s.repo.events.forEach((e) => users.add(e[1])));
+  visibleSeries().forEach((s) => s.repo.events.forEach((e) => users.add(e[1])));
 
   const byCountry = new Map(), byContinent = new Map();
   let located = 0;
@@ -734,8 +743,8 @@ function renderGeo() {
     return;
   }
   const pct = (n) => (100 * n / located).toFixed(n / located >= 0.1 ? 0 : 1) + ' %';
-  $('#geo-sub').textContent =
-    `${nf.format(located)} localisés sur ${nf.format(users.size)} (${Math.round(100 * located / users.size)} %)`;
+  $('#geo-sub').textContent = `${scopeLabel(false)} · ${nf.format(located)} localisés sur ${
+    nf.format(users.size)} (${Math.round(100 * located / users.size)} %)`;
 
   const continents = [...byContinent].sort((a, b) => b[1] - a[1]);
   $('#geo-stack').innerHTML = continents.map(([code, n]) =>
@@ -767,6 +776,7 @@ async function loadData() {
     if (!resp.ok) return false;
     state.data = await resp.json();
     buildSeries();
+    restoreSelection();
     renderAll(true);
     return true;
   } catch (err) {
@@ -863,7 +873,7 @@ function restore() {
   const saved = localStorage.getItem('starviz.theme');
   document.documentElement.dataset.theme =
     saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  ['owner', 'range', 'mode', 'bucket', 'align', 'scale', 'geoScope', 'recentScope'].forEach((k) => {
+  ['range', 'mode', 'bucket', 'align', 'scale'].forEach((k) => {
     const v = localStorage.getItem('starviz.' + k);
     if (v) state[k] = v;
   });
@@ -871,7 +881,14 @@ function restore() {
 }
 
 function bindUI() {
-  bindSeg('#seg-owner', 'owner', () => { state.hidden.clear(); renderAll(false); });
+  $('#seg-owner').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const value = btn.dataset.value;
+    selectSeries(state.series
+      .filter((s) => value === 'all' || s.repo.owner === value)
+      .map((s) => s.key));
+  });
   bindSeg('#seg-range', 'range', () => { renderChart(false); renderLegend(); });
   bindSeg('#seg-mode', 'mode', () => { syncModeUI(); renderChart(false); renderLegend(); });
   bindSeg('#seg-bucket', 'bucket', () => renderChart(false));
@@ -885,17 +902,6 @@ function bindUI() {
     await api('/api/quit', { method: 'POST' }).catch(() => {});
     document.body.innerHTML = '<p class="empty-state">StarViz est arrêté. Vous pouvez fermer cet onglet.</p>';
     stopPolling();
-  });
-
-  $('#geo-scope').addEventListener('change', (e) => {
-    state.geoScope = e.target.value;
-    localStorage.setItem('starviz.geoScope', state.geoScope);
-    renderGeo();
-  });
-  $('#recent-scope').addEventListener('change', (e) => {
-    state.recentScope = e.target.value;
-    localStorage.setItem('starviz.recentScope', state.recentScope);
-    renderRecent();
   });
 
   $('#legend').addEventListener('click', (e) => {
@@ -926,7 +932,7 @@ function bindUI() {
   addEventListener('resize', () => syncChartSize());
   addEventListener('keydown', (e) => {
     if (e.key === 'r' && !e.ctrlKey && !e.metaKey) refresh(e.shiftKey);
-    if (e.key === 'Escape' && state.hidden.size) { state.hidden.clear(); renderChart(false); renderLegend(); renderTable(); }
+    if (e.key === 'Escape' && state.hidden.size) setAllVisible(true);
   });
 }
 

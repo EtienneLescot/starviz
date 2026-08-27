@@ -33,12 +33,18 @@ Python ou JavaScript à installer. Si vous déplacez ce dossier, relancez
   du champ « location » des profils (texte libre, environ 40 % des profils le
   renseignent ; ~91 % de ces valeurs sont rattachées à un pays).
 - **Derniers stargazers** avec avatars, dépôt et localisation.
-- Ces deux panneaux ont leur propre sélecteur : tous les dépôts, ou un seul.
-- Filtre par **compte / organisation**.
 
-Sélection des courbes : « Tout afficher » / « Tout masquer » sous la légende,
-clic sur une pastille pour l'afficher ou la masquer, et « seul » (ou `Alt`+clic)
-pour n'afficher qu'un dépôt.
+### Une seule sélection
+
+Il n'y a qu'une sélection de dépôts, et elle pilote tout : indicateurs, graphe,
+géographie et derniers stargazers. Chaque panneau rappelle son périmètre dans
+son titre, et la sélection est mémorisée d'une session à l'autre.
+
+Pour la modifier : clic sur une pastille de légende (ou une ligne du tableau)
+pour l'afficher / la masquer, « seul » au survol d'une pastille — ou `Alt`+clic
+— pour n'en garder qu'une, « Tout afficher » / « Tout masquer » sous la
+légende, et les boutons de compte / organisation qui sélectionnent tous les
+dépôts d'un propriétaire d'un coup.
 
 Raccourcis : `r` actualise, `Maj+r` ignore le cache, `Échap` réaffiche tous les
 dépôts.
