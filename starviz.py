@@ -216,13 +216,17 @@ class Fetcher:
         self._progress("Identification du compte…")
         login = run_gh(["api", "user", "--jq", ".login"]).strip()
 
+        erreurs: list[str] = []
         self._progress("Liste des organisations…")
         try:
             orgs = [o.strip() for o in
                     run_gh(["api", "user/orgs", "--paginate", "--jq", ".[].login"]).splitlines()
                     if o.strip()]
-        except GhError:
-            orgs = []  # jeton sans « read:org » : on se limite au compte perso
+        except GhError as exc:
+            # Un échec réseau ferait disparaître d'un coup tous les dépôts
+            # d'organisation : on repart de la dernière liste connue.
+            orgs = list((self.data or {}).get("orgs") or [])
+            erreurs.append(f"organisations : {exc}")
 
         repos_raw: list[dict] = []
         seen: set[str] = set()
@@ -286,8 +290,12 @@ class Fetcher:
                     entry["events"], found = self._stargazers(full)
                     locations.update(found)
                 except GhError as exc:
-                    # Un dépôt inaccessible ne doit pas faire échouer la collecte.
+                    # Un dépôt inaccessible ne doit ni faire échouer la collecte,
+                    # ni disparaître de l'affichage : sans évènements, l'interface
+                    # l'ignore purement et simplement. On conserve donc l'existant.
+                    entry["events"] = (cached or {}).get("events", [])
                     entry["error"] = str(exc)
+                    erreurs.append(f"{full} : {exc}")
             repos.append(entry)
 
         self._progress("Finalisation…", total, total)
@@ -298,6 +306,7 @@ class Fetcher:
             "orgs": orgs,
             "repos": repos,
             "locations": {u: p for u, p in locations.items() if u in known},
+            "errors": erreurs,
         }
 
     @staticmethod

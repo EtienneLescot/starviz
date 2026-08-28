@@ -769,6 +769,12 @@ async function loadData() {
     buildSeries();
     restoreSelection();
     renderAll(true);
+    // Une collecte partielle laissait des dépôts s'évanouir sans un mot.
+    const soucis = state.data.errors || [];
+    if (soucis.length) {
+      showError(`Collecte partielle — ${soucis.length} élément(s) conservés depuis le relevé précédent : ${
+        esc(soucis.slice(0, 3).join(' · '))}`);
+    }
     return true;
   } catch (err) {
     showError('Impossible de contacter StarViz : ' + err.message);
