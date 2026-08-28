@@ -1,0 +1,12 @@
+[Unit]
+Description=Relève les classements Trending toutes les 3 heures
+
+[Timer]
+OnCalendar=*-*-* 00/3:00:00
+# Rattrape le relevé manqué si la machine était éteinte à l'heure prévue.
+Persistent=true
+# Évite que tout le monde tape github.com à la seconde pile.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

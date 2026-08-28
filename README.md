@@ -116,8 +116,21 @@ Un relevé toutes les 3 heures suffit à ne pas rater un pic : le classement est
 recalculé en continu, et une position peut passer de la 15ᵉ à la 1ʳᵉ place en
 une demi-journée.
 
+Un minuteur systemd est préférable à cron ici : `Persistent=true` rattrape le
+relevé manqué quand la machine était éteinte à l'heure prévue, ce que cron ne
+fait pas.
+
+```ini
+# ~/.config/systemd/user/starviz-trending.timer
+[Timer]
+OnCalendar=*-*-* 00/3:00:00
+Persistent=true
+RandomizedDelaySec=300
+```
+
 ```bash
-crontab -e   # 0 */3 * * * /chemin/vers/starviz --trending >> $HOME/.cache/starviz/trending.log 2>&1
+systemctl --user enable --now starviz-trending.timer
+loginctl enable-linger "$USER"   # relevés même sans session ouverte
 ```
 
 ## Licence

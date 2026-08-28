@@ -1,0 +1,9 @@
+[Unit]
+Description=Relevé des classements GitHub Trending (starviz)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/etienne/Documents/repos/starviz/starviz --trending
+TimeoutStartSec=900
