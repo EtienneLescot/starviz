@@ -67,9 +67,11 @@ dépôts.
   organisations, puis l'API GraphQL pour les stargazers — celle-ci renvoie la
   date de mise en favori **et** la localisation du profil en une seule
   pagination, là où l'API REST demanderait une requête par utilisateur.
-- Le résultat est mis en cache dans `~/.cache/starviz/data.json`. Une
+- Le résultat est conservé dans `~/.local/share/starviz/data.json`. Une
   actualisation ne recharge que les dépôts dont le nombre d'étoiles a changé
-  (quelques secondes) ; `Maj`+clic sur « Actualiser » force tout.
+  (quelques secondes) ; `Maj`+clic sur « Actualiser » force tout. Cet
+  historique n'est pas un cache : reconstruit depuis l'API, il devient
+  irrécupérable si un dépôt disparaît.
 - Le serveur n'écoute que sur `127.0.0.1`, protège son API par un jeton
   aléatoire régénéré à chaque démarrage, et s'arrête tout seul trois minutes
   après la fermeture de l'onglet.
@@ -94,8 +96,17 @@ observé, et **photographie la page à chaque changement de rang** dans
 `~/.local/share/starviz/captures/`.
 
 Ces données ne vivent pas dans le cache — qui est jetable — mais dans
-`XDG_DATA_HOME`. Si ce dossier est un dépôt git avec un remote, chaque relevé
-est committé et poussé automatiquement :
+`XDG_DATA_HOME`. Si ce dossier est un dépôt git avec un remote, elles y sont
+committées et poussées automatiquement.
+
+Un relevé a lieu toutes les 3 heures et modifie toujours quelque chose : une
+ligne de journal, quelques étoiles de plus. Committer à chaque passage
+noierait l'historique sous des dizaines de commits vides. Le commit n'a donc
+lieu que sur un **évènement** — rang qui bouge, dépôt qui entre ou sort d'un
+classement, nouvelle capture — le message le résumant (`Classements :
+weekly/typescript #5→#3, monthly/tous sorti`). À défaut d'évènement, un
+**commit quotidien** garantit que rien ne reste plus de 20 h hors du dépôt
+distant.
 
 ```bash
 cd ~/.local/share/starviz && git init -b main
@@ -127,6 +138,9 @@ OnCalendar=*-*-* 00/3:00:00
 Persistent=true
 RandomizedDelaySec=300
 ```
+
+Le service exécute `starviz --fetch-only --trending` : il met à jour
+l'historique des étoiles **et** relève les classements en une passe.
 
 ```bash
 systemctl --user enable --now starviz-trending.timer

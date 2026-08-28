@@ -34,7 +34,6 @@ IDLE_TIMEOUT = 180.0  # secondes sans requête du navigateur avant extinction
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / APP
-CACHE_FILE = CACHE_DIR / "data.json"
 INSTANCE_FILE = CACHE_DIR / "instance.json"
 
 REPO_FIELDS = (
@@ -77,6 +76,9 @@ EXTRA_PATHS = [
 # captures, eux, se conservent et se synchronisent. D'où XDG_DATA_HOME.
 DATA_DIR = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / APP
 TRENDING_FILE = DATA_DIR / "trending.jsonl"
+# L'historique des étoiles est reconstruit depuis l'API, mais il ne l'est plus
+# si un dépôt disparaît : c'est une donnée à conserver, pas un cache.
+CACHE_FILE = DATA_DIR / "data.json"
 TRENDING_UA = "starviz (personal rank recorder; https://github.com/EtienneLescot/starviz)"
 # GitHub n'expose ni API ni notification pour ses classements « Trending », et
 # les archives publiques ne couvrent que la fenêtre journalière. On relève donc
@@ -428,21 +430,43 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
     return releve
 
 
-def sync_data() -> str:
-    """Pousse l'historique et les captures si le dossier de données est un dépôt git."""
+def sync_data(motif: str = "", flush_apres_h: int = 20) -> str:
+    """Pousse les données si le dossier est un dépôt git.
+
+    Un relevé a lieu toutes les 3 heures et modifie toujours quelque chose
+    (une ligne de journal, quelques étoiles de plus). Committer à chaque fois
+    noierait l'historique sous des dizaines de commits sans contenu. On ne
+    committe donc que sur un évènement — changement de rang, nouvelle capture —
+    ou, à défaut, une fois par jour pour ne rien laisser trop longtemps
+    hors du dépôt distant.
+    """
     if not (DATA_DIR / ".git").exists():
         return ""
-    def git(*args, **kw):
+
+    def git(*args):
         return subprocess.run(["git", "-C", str(DATA_DIR), *args],
-                              capture_output=True, text=True, timeout=120, **kw)
+                              capture_output=True, text=True, timeout=180)
+
     if not git("status", "--porcelain").stdout.strip():
         return "rien à synchroniser"
+
+    if not motif:
+        dernier = git("log", "-1", "--format=%ct").stdout.strip()
+        try:
+            age_h = (time.time() - int(dernier)) / 3600
+        except ValueError:
+            age_h = 1e9
+        if age_h < flush_apres_h:
+            return f"en attente (dernier commit il y a {age_h:.0f} h, rien de notable)"
+        motif = "Relevé quotidien"
+
     git("add", "-A")
-    git("commit", "-m", f"Relevé du {now_iso()}")
+    git("commit", "-m", f"{motif}\n\n{now_iso()}")
     pousse = git("push")
     if pousse.returncode != 0:
-        return "commit local (push impossible : " + (pousse.stderr.strip().splitlines() or ["?"])[-1][:60] + ")"
-    return "synchronisé"
+        detail = (pousse.stderr.strip().splitlines() or ["?"])[-1][:60]
+        return f"commit local, push impossible ({detail})"
+    return f"poussé — {motif}"
 
 
 def record_trending(shots: bool = True) -> int:
@@ -460,6 +484,7 @@ def record_trending(shots: bool = True) -> int:
             compte[r["language"].lower()] = compte.get(r["language"].lower(), 0) + r["stars"]
     langs = [l for l, _ in sorted(compte.items(), key=lambda kv: -kv[1])[:2]]
 
+    connus = derniers_rangs()
     releve = trending_ranks(login, repos, langs, shots=shots)
 
     TRENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -489,7 +514,24 @@ def record_trending(shots: bool = True) -> int:
     print(f"\n{len(historique)} relevé(s) dans {TRENDING_FILE}")
     if shots and CAPTURES_DIR.exists():
         print(f"{len(list(CAPTURES_DIR.glob('*.png')))} capture(s) dans {CAPTURES_DIR}")
-    etat = sync_data()
+    # Un évènement digne d'un commit : un rang qui bouge, ou une capture.
+    avant = {(k[0], k[1], k[2]): v for k, v in connus.items()}
+    apres = {(t["scope"], t["window"], t.get("lang")): t["rank"] for t in releve["found"]}
+    changements = []
+    for cle in sorted(set(avant) | set(apres), key=str):
+        ancien, nouveau = avant.get(cle), apres.get(cle)
+        if ancien == nouveau:
+            continue
+        libelle = f"{cle[1]}/{cle[2] or 'tous'}"
+        if nouveau is None:
+            changements.append(f"{libelle} sorti")
+        elif ancien is None:
+            changements.append(f"{libelle} #{nouveau}")
+        else:
+            changements.append(f"{libelle} #{ancien}→#{nouveau}")
+    motif = "Classements : " + ", ".join(changements[:4]) if changements else ""
+
+    etat = sync_data(motif)
     if etat:
         print(f"Dépôt de données : {etat}")
     return 0
@@ -658,13 +700,6 @@ def main() -> int:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.trending:
-        try:
-            return record_trending(shots=not args.no_shots)
-        except GhError as exc:
-            print(f"Échec : {exc}", file=sys.stderr)
-            return 1
-
     fetcher = Fetcher()
 
     if args.fetch_only:
@@ -674,10 +709,26 @@ def main() -> int:
         status = fetcher.status()
         if status["error"]:
             print(f"Échec : {status['error']}", file=sys.stderr)
+            if not args.trending:
+                return 1
+        else:
+            repos = [r for r in fetcher.data["repos"] if r["stars"] > 0]
+            print(f"{sum(r['stars'] for r in repos)} étoiles sur {len(repos)} dépôts → {CACHE_FILE}")
+        # Sans --trending, l'historique des étoiles mérite quand même d'être
+        # poussé — au rythme d'un commit par jour.
+        if not args.trending:
+            etat = sync_data()
+            if etat:
+                print(f"Dépôt de données : {etat}")
+            return 0
+
+    if args.trending:
+        try:
+            return record_trending(shots=not args.no_shots)
+        except GhError as exc:
+            print(f"Échec : {exc}", file=sys.stderr)
             return 1
-        repos = [r for r in fetcher.data["repos"] if r["stars"] > 0]
-        print(f"{sum(r['stars'] for r in repos)} étoiles sur {len(repos)} dépôts → {CACHE_FILE}")
-        return 0
+
 
     running = existing_instance()
     if running:
