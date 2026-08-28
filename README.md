@@ -89,9 +89,18 @@ journalière — un passage hebdomadaire ou mensuel ne laisse donc aucune trace.
 
 relève votre position dans les classements (développeurs et dépôts ×
 journalier, hebdomadaire, mensuel × sans filtre et par langage), l'ajoute à
-`~/.cache/starviz/trending.jsonl` en rappelant le meilleur rang déjà observé,
-et **photographie chaque page où vous figurez** dans
-`~/.cache/starviz/captures/`.
+`~/.local/share/starviz/trending.jsonl` en rappelant le meilleur rang déjà
+observé, et **photographie la page à chaque changement de rang** dans
+`~/.local/share/starviz/captures/`.
+
+Ces données ne vivent pas dans le cache — qui est jetable — mais dans
+`XDG_DATA_HOME`. Si ce dossier est un dépôt git avec un remote, chaque relevé
+est committé et poussé automatiquement :
+
+```bash
+cd ~/.local/share/starviz && git init -b main
+gh repo create starviz-data --private --source=. --remote=origin --push
+```
 
 Les langages surveillés sont déduits de vos dépôts les mieux étoilés. C'est
 loin d'être un détail : un classement filtré est bien plus accessible que le

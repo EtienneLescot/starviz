@@ -73,7 +73,10 @@ EXTRA_PATHS = [
 ]
 
 
-TRENDING_FILE = CACHE_DIR / "trending.jsonl"
+# Le cache est jetable par définition ; l'historique des classements et les
+# captures, eux, se conservent et se synchronisent. D'où XDG_DATA_HOME.
+DATA_DIR = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / APP
+TRENDING_FILE = DATA_DIR / "trending.jsonl"
 TRENDING_UA = "starviz (personal rank recorder; https://github.com/EtienneLescot/starviz)"
 # GitHub n'expose ni API ni notification pour ses classements « Trending », et
 # les archives publiques ne couvrent que la fenêtre journalière. On relève donc
@@ -86,7 +89,7 @@ TRENDING_PAGES = {
                    r'<h2 class="h3 lh-condensed"\s*>\s*<a[^>]*?href="/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)"'),
 }
 TRENDING_WINDOWS = ("daily", "weekly", "monthly")
-CAPTURES_DIR = CACHE_DIR / "captures"
+CAPTURES_DIR = DATA_DIR / "captures"
 # Chromium et Firefox sont des snaps sur Ubuntu : leur confinement leur
 # interdit d'écrire dans un dossier caché comme ~/.cache. On passe donc par un
 # dossier temporaire visible, puis on déplace le fichier.
@@ -357,6 +360,21 @@ def capture_page(url: str, nom: str) -> str | None:
             pass
 
 
+def derniers_rangs() -> dict[tuple, int]:
+    """Dernier rang connu pour chaque case du classement (scope, fenêtre, langage)."""
+    vus: dict[tuple, int] = {}
+    try:
+        for ligne in TRENDING_FILE.read_text("utf-8").splitlines():
+            if not ligne.strip():
+                continue
+            releve = json.loads(ligne)
+            for t in releve.get("found", []):
+                vus[(t["scope"], t["window"], t.get("lang"))] = t["rank"]
+    except (OSError, ValueError):
+        pass
+    return vus
+
+
 def trending_ranks(login: str, repos: list[str], langs: list[str],
                    shots: bool = True) -> dict:
     """Relève la position de l'utilisateur et de ses dépôts dans les classements.
@@ -367,6 +385,7 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
     import re
     horodatage = now_iso()
     releve = {"ts": horodatage, "found": [], "checked": 0, "errors": []}
+    connus = derniers_rangs()
     for scope, (base, pattern) in TRENDING_PAGES.items():
         cibles = [login.lower()] if scope == "developer" else [r.lower() for r in repos]
         for lang in [None, *langs]:
@@ -388,13 +407,33 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
                         continue
                     trouve = {"scope": scope, "window": window, "lang": lang,
                               "entity": nom, "rank": i, "total": len(noms)}
-                    if shots:
+                    # Une capture par changement de rang : à chaque passage, on
+                    # accumulerait des dizaines d'images identiques par jour.
+                    nouveau = connus.get((scope, window, lang)) != i
+                    if shots and nouveau:
                         fichier = (f"{horodatage.replace(':', '').replace('-', '')}"
                                    f"_{scope}_{window}_{lang or 'all'}_rang{i}.png")
                         trouve["shot"] = capture_page(url, fichier)
                     releve["found"].append(trouve)
                 time.sleep(1)  # courtoisie envers github.com
     return releve
+
+
+def sync_data() -> str:
+    """Pousse l'historique et les captures si le dossier de données est un dépôt git."""
+    if not (DATA_DIR / ".git").exists():
+        return ""
+    def git(*args, **kw):
+        return subprocess.run(["git", "-C", str(DATA_DIR), *args],
+                              capture_output=True, text=True, timeout=120, **kw)
+    if not git("status", "--porcelain").stdout.strip():
+        return "rien à synchroniser"
+    git("add", "-A")
+    git("commit", "-m", f"Relevé du {now_iso()}")
+    pousse = git("push")
+    if pousse.returncode != 0:
+        return "commit local (push impossible : " + (pousse.stderr.strip().splitlines() or ["?"])[-1][:60] + ")"
+    return "synchronisé"
 
 
 def record_trending(shots: bool = True) -> int:
@@ -441,6 +480,9 @@ def record_trending(shots: bool = True) -> int:
     print(f"\n{len(historique)} relevé(s) dans {TRENDING_FILE}")
     if shots and CAPTURES_DIR.exists():
         print(f"{len(list(CAPTURES_DIR.glob('*.png')))} capture(s) dans {CAPTURES_DIR}")
+    etat = sync_data()
+    if etat:
+        print(f"Dépôt de données : {etat}")
     return 0
 
 
@@ -605,6 +647,7 @@ def main() -> int:
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.trending:
         try:
