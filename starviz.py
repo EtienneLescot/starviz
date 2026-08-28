@@ -86,6 +86,12 @@ TRENDING_PAGES = {
                    r'<h2 class="h3 lh-condensed"\s*>\s*<a[^>]*?href="/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)"'),
 }
 TRENDING_WINDOWS = ("daily", "weekly", "monthly")
+CAPTURES_DIR = CACHE_DIR / "captures"
+# Chromium et Firefox sont des snaps sur Ubuntu : leur confinement leur
+# interdit d'écrire dans un dossier caché comme ~/.cache. On passe donc par un
+# dossier temporaire visible, puis on déplace le fichier.
+SHOT_TMP = Path.home() / "starviz-shot-tmp"
+SHOT_BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable")
 
 
 class GhError(RuntimeError):
@@ -324,34 +330,89 @@ class Fetcher:
         return events, locations
 
 
-def trending_ranks(login: str, repos: list[str]) -> dict:
-    """Relève la position de l'utilisateur et de ses dépôts dans les 6 classements."""
+def capture_page(url: str, nom: str) -> str | None:
+    """Photographie une page de classement : une image vaut mieux qu'un rang."""
+    navigateur = next((shutil.which(b) for b in SHOT_BROWSERS if shutil.which(b)), None)
+    if not navigateur:
+        return None
+    SHOT_TMP.mkdir(parents=True, exist_ok=True)
+    CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+    brut = SHOT_TMP / nom
+    try:
+        subprocess.run(
+            [navigateur, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+             "--window-size=1280,2600", f"--screenshot={brut}", url],
+            capture_output=True, timeout=120)
+        if not brut.exists():
+            return None
+        cible = CAPTURES_DIR / nom
+        brut.replace(cible)
+        return str(cible)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    finally:
+        try:
+            SHOT_TMP.rmdir()
+        except OSError:
+            pass
+
+
+def trending_ranks(login: str, repos: list[str], langs: list[str],
+                   shots: bool = True) -> dict:
+    """Relève la position de l'utilisateur et de ses dépôts dans les classements.
+
+    Chaque classement existe sans filtre et par langage ; le rang y est très
+    différent, et seule la version filtrée révèle parfois une bonne place.
+    """
     import re
-    releve = {"ts": now_iso(), "developer": {}, "repository": {}}
+    horodatage = now_iso()
+    releve = {"ts": horodatage, "found": [], "checked": 0, "errors": []}
     for scope, (base, pattern) in TRENDING_PAGES.items():
         cibles = [login.lower()] if scope == "developer" else [r.lower() for r in repos]
-        for window in TRENDING_WINDOWS:
-            url = base if window == "daily" else f"{base}?since={window}"
-            try:
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": TRENDING_UA, "Accept": "text/html"})
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    html = resp.read().decode("utf-8", "ignore")
-            except (urllib.error.URLError, OSError, TimeoutError) as exc:
-                releve[scope][window] = {"error": str(exc)[:80]}
-                continue
-            noms = [n.lower() for n in re.findall(pattern, html)]
-            trouves = {n: i + 1 for i, n in enumerate(noms) if n in cibles}
-            releve[scope][window] = {"total": len(noms), "ranks": trouves}
+        for lang in [None, *langs]:
+            racine = base if lang is None else f"{base}/{lang}"
+            for window in TRENDING_WINDOWS:
+                url = racine if window == "daily" else f"{racine}?since={window}"
+                try:
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": TRENDING_UA, "Accept": "text/html"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        html = resp.read().decode("utf-8", "ignore")
+                except (urllib.error.URLError, OSError, TimeoutError) as exc:
+                    releve["errors"].append(f"{scope}/{lang or 'all'}/{window}: {exc}"[:120])
+                    continue
+                releve["checked"] += 1
+                noms = [n.lower() for n in re.findall(pattern, html)]
+                for i, nom in enumerate(noms, 1):
+                    if nom not in cibles:
+                        continue
+                    trouve = {"scope": scope, "window": window, "lang": lang,
+                              "entity": nom, "rank": i, "total": len(noms)}
+                    if shots:
+                        fichier = (f"{horodatage.replace(':', '').replace('-', '')}"
+                                   f"_{scope}_{window}_{lang or 'all'}_rang{i}.png")
+                        trouve["shot"] = capture_page(url, fichier)
+                    releve["found"].append(trouve)
+                time.sleep(1)  # courtoisie envers github.com
     return releve
 
 
-def record_trending() -> int:
+def record_trending(shots: bool = True) -> int:
     """Relève les classements, les journalise, et affiche les meilleurs connus."""
     login = run_gh(["api", "user", "--jq", ".login"]).strip()
     cache = read_json(CACHE_FILE) or {}
-    repos = [r["full_name"] for r in cache.get("repos", []) if r.get("stars", 0) > 0]
-    releve = trending_ranks(login, repos)
+    etoiles = [r for r in cache.get("repos", []) if r.get("stars", 0) > 0]
+    repos = [r["full_name"] for r in etoiles]
+
+    # Langages à surveiller : ceux des dépôts les mieux étoilés, les classements
+    # filtrés étant bien plus accessibles que le classement général.
+    compte: dict[str, int] = {}
+    for r in sorted(etoiles, key=lambda r: -r["stars"]):
+        if r.get("language"):
+            compte[r["language"].lower()] = compte.get(r["language"].lower(), 0) + r["stars"]
+    langs = [l for l, _ in sorted(compte.items(), key=lambda kv: -kv[1])[:2]]
+
+    releve = trending_ranks(login, repos, langs, shots=shots)
 
     TRENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     with TRENDING_FILE.open("a", encoding="utf-8") as fh:
@@ -365,18 +426,21 @@ def record_trending() -> int:
     except (OSError, ValueError):
         pass
 
-    print(f"Relevé du {releve['ts']}")
-    for scope, etiquette in (("developer", "développeur"), ("repository", "dépôt")):
-        for window in TRENDING_WINDOWS:
-            actuel = releve[scope].get(window) or {}
-            rangs = actuel.get("ranks") or {}
-            maintenant = ", ".join(f"{k} #{v}" for k, v in rangs.items()) or "absent"
-            meilleurs = [min(h[scope][window]["ranks"].values())
-                         for h in historique
-                         if (h.get(scope, {}).get(window) or {}).get("ranks")]
-            record = f" · meilleur relevé : #{min(meilleurs)}" if meilleurs else ""
-            print(f"  {etiquette:<12} {window:<8} {maintenant}{record}")
+    print(f"Relevé du {releve['ts']} — {releve['checked']} classements consultés"
+          + (f", langages : {', '.join(langs)}" if langs else ""))
+    if not releve["found"]:
+        print("  absent de tous les classements")
+    for t in sorted(releve["found"], key=lambda t: t["rank"]):
+        # Meilleur rang déjà observé dans la même case du classement.
+        anciens = [f["rank"] for h in historique for f in h.get("found", [])
+                   if (f["scope"], f["window"], f.get("lang")) == (t["scope"], t["window"], t.get("lang"))]
+        record = f" · meilleur : #{min(anciens)}" if anciens else ""
+        image = "  📷" if t.get("shot") else ""
+        print(f"  {t['scope']:<10} {t['window']:<8} {t.get('lang') or 'tous langages':<12}"
+              f" #{t['rank']}/{t['total']}  {t['entity']}{record}{image}")
     print(f"\n{len(historique)} relevé(s) dans {TRENDING_FILE}")
+    if shots and CAPTURES_DIR.exists():
+        print(f"{len(list(CAPTURES_DIR.glob('*.png')))} capture(s) dans {CAPTURES_DIR}")
     return 0
 
 
@@ -536,13 +600,15 @@ def main() -> int:
     parser.add_argument("--fetch-only", action="store_true", help="mettre à jour le cache puis quitter")
     parser.add_argument("--trending", action="store_true",
                         help="relever les classements Trending et les journaliser, puis quitter")
+    parser.add_argument("--no-shots", action="store_true",
+                        help="avec --trending : ne pas photographier les classements")
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.trending:
         try:
-            return record_trending()
+            return record_trending(shots=not args.no_shots)
         except GhError as exc:
             print(f"Échec : {exc}", file=sys.stderr)
             return 1

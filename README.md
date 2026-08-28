@@ -87,9 +87,21 @@ journalière — un passage hebdomadaire ou mensuel ne laisse donc aucune trace.
 ./starviz --trending
 ```
 
-relève votre position dans les six classements (développeurs et dépôts ×
-journalier, hebdomadaire, mensuel) et l'ajoute à
-`~/.cache/starviz/trending.jsonl`, en rappelant le meilleur rang déjà observé.
+relève votre position dans les classements (développeurs et dépôts ×
+journalier, hebdomadaire, mensuel × sans filtre et par langage), l'ajoute à
+`~/.cache/starviz/trending.jsonl` en rappelant le meilleur rang déjà observé,
+et **photographie chaque page où vous figurez** dans
+`~/.cache/starviz/captures/`.
+
+Les langages surveillés sont déduits de vos dépôts les mieux étoilés. C'est
+loin d'être un détail : un classement filtré est bien plus accessible que le
+classement général — on peut être 13ᵉ toutes langues confondues et 5ᵉ en
+TypeScript le même jour.
+
+Les captures passent par un navigateur sans interface (`chromium` ou
+équivalent). Sur Ubuntu, les navigateurs étant des snaps, ils ne peuvent pas
+écrire dans un dossier caché : l'image est donc écrite dans
+`~/starviz-shot-tmp` puis déplacée. `--no-shots` désactive cette étape.
 
 Un relevé toutes les 3 heures suffit à ne pas rater un pic : le classement est
 recalculé en continu, et une position peut passer de la 15ᵉ à la 1ʳᵉ place en
