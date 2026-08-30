@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# Application desktop (Tauri)
+node_modules/
+src-tauri/target/
+src-tauri/gen/

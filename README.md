@@ -2,7 +2,8 @@
 
 Visualiseur de l'évolution des étoiles de vos dépôts GitHub — le vôtre et ceux
 de vos organisations. Les données viennent de votre `gh` déjà authentifié ;
-l'affichage est une petite application web servie en local.
+l'affichage se fait soit dans une application desktop, soit dans une petite
+application web servie en local.
 
 ![lancement](web/icon.svg)
 
@@ -19,6 +20,40 @@ navigateur ; un second clic réutilise l'instance déjà lancée.
 Prérequis : `python3`, et `gh` authentifié (`gh auth login`). Aucune dépendance
 Python ou JavaScript à installer. Si vous déplacez ce dossier, relancez
 `./install.sh` : le raccourci pointe vers un chemin absolu.
+
+## Application desktop
+
+Une seconde façon de lancer StarViz, à côté du serveur local : une application
+native bâtie avec Tauri. Elle affiche exactement la même interface — `web/` est
+partagé, pas dupliqué — mais la collecte passe par un backend Rust plutôt que
+par le serveur Python.
+
+```bash
+npm install
+npm run dev      # lance l'application (longue compilation au premier passage)
+npm run build    # produit l'installeur dans src-tauri/target/release/bundle/
+```
+
+Ce qu'elle apporte :
+
+- **Zone de notification** : fermer la fenêtre la replie au lieu de quitter ;
+  le menu du tray permet d'actualiser ou de quitter pour de bon.
+- **Collecte parallèle** : six dépôts interrogés de front au lieu d'une file
+  d'attente. La collecte est presque entièrement de l'attente réseau — le
+  dépôt le plus étoilé mobilisait à lui seul une quarantaine de secondes.
+- **Reprise sur erreur transitoire** : les HTTP 5xx sont réessayés trois fois.
+  Auparavant un seul 504 au milieu d'une pagination suffisait à faire
+  disparaître le dépôt concerné de l'affichage, du graphe et de la géographie.
+- Plus de serveur HTTP, de jeton, ni d'extinction par inactivité : le front
+  parle au backend par IPC.
+
+Les deux chemins coexistent et lisent le même
+`~/.local/share/starviz/data.json` : `starviz.py` reste nécessaire pour
+`--trending` et pour le relevé planifié `--fetch-only`.
+
+Compilation : Rust stable, plus WebView2 sous Windows (fourni avec Windows 11).
+Le code ne contient rien de spécifique à une plateforme, mais **seule la cible
+Windows a été construite et testée à ce jour**.
 
 ## Ce que montre l'application
 

@@ -6,7 +6,10 @@
 <title>StarViz — étoiles GitHub</title>
 <link rel="icon" href="/icon.svg">
 <link rel="stylesheet" href="/style.css">
-<script>window.STARVIZ_TOKEN = "__STARVIZ_TOKEN__";</script>
+<!-- Le serveur Python y substitue son jeton. Une balise meta plutot qu'un
+     script inline : l'application Tauri applique une CSP stricte, ou tout
+     script inline serait bloque. -->
+<meta name="starviz-token" content="__STARVIZ_TOKEN__">
 </head>
 <body>
 

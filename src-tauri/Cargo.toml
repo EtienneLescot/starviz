@@ -1,0 +1,30 @@
+[package]
+name = "starviz"
+version = "0.1.0"
+description = "Visualiseur de l'évolution des étoiles de vos dépôts GitHub"
+authors = ["Etienne Lescot"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
+tauri-plugin-opener = "2.5"
+tauri-plugin-single-instance = "2.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "time", "rt", "macros", "sync"] }
+futures = "0.3"
+dirs = "6"
+chrono = "0.4"
+
+# Une app locale qui affiche des courbes n'a aucune raison de traîner les
+# symboles de débogage ni douze unités de compilation.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

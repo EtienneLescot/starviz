@@ -1,11 +1,50 @@
 'use strict';
 /* StarViz — interface : courbes cumulées, cadence, classement, stargazers. */
 
-const TOKEN = window.STARVIZ_TOKEN || '';
+const TOKEN = document.querySelector('meta[name="starviz-token"]')?.content || '';
 const DAY = 86400000;
 const $ = (sel, root = document) => root.querySelector(sel);
 let reloading = false;
+
+// Deux hôtes possibles pour la même interface : l'application Tauri, où le
+// backend Rust répond par IPC, et le serveur HTTP de `starviz.py`, qui sert
+// encore `--fetch-only` et `--trending`. Les deux chemins coexistent pour que
+// porter l'un ne casse pas l'autre.
+const TAURI = window.__TAURI__ || null;
+const COMMANDES = {
+  '/api/hello': 'hello',
+  '/api/status': 'status',
+  '/api/data': 'data',
+  '/api/refresh': 'refresh',
+  '/api/quit': 'quit',
+};
+
+// Une réponse minimale façon `fetch`, pour que les appelants n'aient pas à
+// savoir lequel des deux backends leur a répondu.
+const reponse = (ok, status, value) => ({ ok, status, json: async () => value });
+
+async function apiTauri(path) {
+  const [route, qs] = path.split('?');
+  const cmd = COMMANDES[route];
+  if (!cmd) return reponse(false, 404, { error: 'route inconnue' });
+  const args = cmd === 'refresh'
+    ? { force: new URLSearchParams(qs || '').get('force') === '1' }
+    : {};
+  try {
+    const value = await TAURI.core.invoke(cmd, args);
+    // `data` ne renvoie rien tant qu'aucun historique n'existe : c'est
+    // l'équivalent du 404 que servait le serveur Python.
+    if (cmd === 'data' && (value === null || value === undefined)) {
+      return reponse(false, 404, { error: 'aucune donnée en cache' });
+    }
+    return reponse(true, 200, value ?? { ok: true });
+  } catch (err) {
+    return reponse(false, 500, { error: String(err) });
+  }
+}
+
 async function api(path, opts) {
+  if (TAURI) return apiTauri(path);
   const resp = await fetch(path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(TOKEN), opts);
   // Le serveur régénère son jeton à chaque démarrage : une page laissée
   // ouverte pendant un redémarrage doit se recharger plutôt que d'échouer
@@ -16,6 +55,23 @@ async function api(path, opts) {
     setTimeout(() => location.reload(), 900);
   }
   return resp;
+}
+
+// Dans une application, un lien externe doit partir vers le navigateur du
+// système. Laissé à lui-même, il remplacerait l'interface par github.com dans
+// une fenêtre sans barre d'adresse ni bouton retour — sans retour possible.
+//
+// On appelle la commande du greffon directement plutôt que son API JS :
+// sans bundler, `window.__TAURI__.opener` n'existe pas, et le gestionnaire
+// se contenterait alors de neutraliser le lien sans rien ouvrir.
+if (TAURI) {
+  document.addEventListener('click', (e) => {
+    const lien = e.target.closest?.('a[href^="https://"]');
+    if (!lien) return;
+    e.preventDefault();
+    TAURI.core.invoke('plugin:opener|open_url', { url: lien.href })
+      .catch((err) => showError('Impossible d\'ouvrir ' + lien.href + ' : ' + err));
+  });
 }
 
 const PALETTES = {
