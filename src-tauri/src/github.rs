@@ -1,7 +1,7 @@
-//! Collecte via le CLI `gh` déjà authentifié.
+//! Collecte des dépôts et de leurs stargazers.
 //!
-//! Deux différences assumées avec `starviz.py`, qui étaient ses deux vrais
-//! défauts :
+//! Trois différences assumées avec `starviz.py`, dont les deux premières
+//! étaient ses vrais défauts :
 //!
 //! 1. Les dépôts sont interrogés en parallèle. La collecte était séquentielle
 //!    et passait l'essentiel de son temps à attendre le réseau — mesuré à
@@ -9,9 +9,13 @@
 //! 2. Les erreurs transitoires sont réessayées. Un unique HTTP 504 au milieu
 //!    d'une pagination de 22 pages faisait disparaître le dépôt le plus
 //!    étoilé du tableau de bord, sans autre trace qu'un bandeau.
+//! 3. L'API est appelée directement, sans passer par `gh`.
 
+use crate::api::Client;
 use crate::model::{Data, Event, GhRepo, Repo};
 use futures::stream::{self, StreamExt};
+use serde::Deserialize;
+use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,148 +24,156 @@ use std::sync::Arc;
 /// secondaires — qui se traduisent par des blocages temporaires, bien plus
 /// pénibles qu'une collecte deux secondes plus lente.
 const CONCURRENCE: usize = 6;
-const TENTATIVES: usize = 3;
 
-const CHAMPS_REPO: &str = "nameWithOwner,name,description,stargazerCount,isFork,isPrivate,\
-isArchived,createdAt,pushedAt,primaryLanguage,url";
+/// Les champs d'un dépôt, identiques à ceux que demandait `gh repo list` :
+/// le format de `data.json` doit rester lisible par `starviz.py`.
+const CHAMPS_REPO: &str = "nameWithOwner name description stargazerCount isFork \
+isPrivate isArchived createdAt pushedAt primaryLanguage { name } url";
 
-const REQUETE_STARGAZERS: &str = r#"query($owner: String!, $name: String!, $endCursor: String) {
+const REQ_VIEWER: &str = "query { viewer { login } }";
+
+const REQ_ORGS: &str = "query($endCursor: String) {
+  viewer {
+    organizations(first: 100, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { login }
+    }
+  }
+}";
+
+const REQ_STARGAZERS: &str = "query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     stargazers(first: 100, after: $endCursor, orderBy: {field: STARRED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       edges { starredAt node { login location } }
     }
   }
-}"#;
-
-const JQ_STARGAZERS: &str =
-    r#".data.repository.stargazers.edges[] | "\(.starredAt)\t\(.node.login)\t\(.node.location // "")""#;
+}";
 
 pub type Progress = Arc<dyn Fn(String, usize, usize) + Send + Sync>;
 
-/// Une erreur qui a des chances de disparaître d'elle-même : on réessaie.
-fn transitoire(err: &str) -> bool {
-    let e = err.to_ascii_lowercase();
-    [
-        "http 500", "http 502", "http 503", "http 504", "timeout", "timed out", "connection",
-        "temporarily", "eof",
-    ]
-    .iter()
-    .any(|m| e.contains(m))
+#[derive(Deserialize)]
+struct Org {
+    login: String,
 }
 
-async fn run_gh(args: &[String]) -> Result<String, String> {
-    let mut derniere = String::new();
-    for essai in 0..TENTATIVES {
-        if essai > 0 {
-            // Palier court : ces 504 se dissipent en quelques secondes.
-            tokio::time::sleep(std::time::Duration::from_secs(2 * essai as u64)).await;
-        }
-        let mut cmd = tokio::process::Command::new("gh");
-        cmd.args(args);
-        #[cfg(windows)]
-        {
-            // Sans ça, chaque appel fait clignoter une console : avec une
-            // pagination de plusieurs dizaines de pages, c'est inutilisable.
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        match cmd.output().await {
-            Ok(out) if out.status.success() => {
-                return Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-            }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                derniere = if err.is_empty() {
-                    format!("gh a échoué (code {:?})", out.status.code())
-                } else {
-                    err
-                };
-                if !transitoire(&derniere) {
-                    return Err(derniere);
-                }
-            }
-            Err(e) => {
-                return Err(format!("gh introuvable ou non exécutable : {e}"));
-            }
-        }
-    }
-    Err(derniere)
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArcStargazer {
+    starred_at: String,
+    node: Option<ProfilStargazer>,
+}
+
+#[derive(Deserialize)]
+struct ProfilStargazer {
+    login: String,
+    location: Option<String>,
 }
 
 /// Évènements triés + localisations des profils.
 ///
 /// GraphQL sert les deux d'un coup : l'équivalent REST demanderait une requête
 /// supplémentaire par utilisateur pour connaître sa localisation.
-async fn stargazers(full_name: &str) -> Result<(Vec<Event>, BTreeMap<String, String>), String> {
+async fn stargazers(
+    client: &Client,
+    full_name: &str,
+) -> Result<(Vec<Event>, BTreeMap<String, String>), String> {
     let (owner, name) = full_name
         .split_once('/')
         .ok_or_else(|| "nom de dépôt invalide".to_string())?;
-    let args: Vec<String> = vec![
-        "api".into(),
-        "graphql".into(),
-        "--paginate".into(),
-        "-f".into(),
-        format!("owner={owner}"),
-        "-f".into(),
-        format!("name={name}"),
-        "-f".into(),
-        format!("query={REQUETE_STARGAZERS}"),
-        "--jq".into(),
-        JQ_STARGAZERS.into(),
-    ];
-    let sortie = run_gh(&args).await?;
+    let arcs: Vec<ArcStargazer> = client
+        .graphql_paginee(
+            REQ_STARGAZERS,
+            json!({ "owner": owner, "name": name }),
+            &["repository", "stargazers"],
+            "edges",
+        )
+        .await?;
 
-    let mut events: Vec<Event> = Vec::new();
+    let mut events: Vec<Event> = Vec::with_capacity(arcs.len());
     let mut locations = BTreeMap::new();
-    for ligne in sortie.lines() {
-        if ligne.trim().is_empty() {
-            continue;
-        }
-        let mut champs = ligne.splitn(3, '\t');
-        let stamp = champs.next().unwrap_or("").to_string();
-        let user = champs.next().unwrap_or("").to_string();
-        let lieu = champs.next().unwrap_or("").trim().to_string();
-        if !lieu.is_empty() {
+    for arc in arcs {
+        // Un compte supprimé entre-temps laisse une étoile sans profil : elle
+        // compte quand même dans la courbe.
+        let Some(profil) = arc.node else { continue };
+        if let Some(lieu) = profil.location.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
             // Le champ est du texte libre : on borne pour ne pas faire enfler
             // le fichier avec des biographies déguisées en localisation.
-            locations.insert(user.clone(), lieu.chars().take(80).collect());
+            locations.insert(profil.login.clone(), lieu.chars().take(80).collect());
         }
-        events.push((stamp, user));
+        events.push((arc.starred_at, profil.login));
     }
     events.sort_by(|a, b| a.0.cmp(&b.0));
     Ok((events, locations))
 }
 
-pub async fn collect(force: bool, precedent: Option<Data>, prog: Progress) -> Result<Data, String> {
+async fn depots_du_compte(client: &Client) -> Result<Vec<GhRepo>, String> {
+    // `ownerAffiliations: [OWNER]` reproduit `gh repo list` sans argument :
+    // les dépôts possédés, privés compris, sans ceux où l'on est simple
+    // collaborateur.
+    let requete = format!(
+        "query($endCursor: String) {{
+  viewer {{
+    repositories(first: 100, after: $endCursor, ownerAffiliations: [OWNER],
+                 orderBy: {{field: STARGAZERS, direction: DESC}}) {{
+      pageInfo {{ hasNextPage endCursor }}
+      nodes {{ {CHAMPS_REPO} }}
+    }}
+  }}
+}}"
+    );
+    client
+        .graphql_paginee(&requete, json!({}), &["viewer", "repositories"], "nodes")
+        .await
+}
+
+async fn depots_de_lorg(client: &Client, org: &str) -> Result<Vec<GhRepo>, String> {
+    let requete = format!(
+        "query($org: String!, $endCursor: String) {{
+  organization(login: $org) {{
+    repositories(first: 100, after: $endCursor,
+                 orderBy: {{field: STARGAZERS, direction: DESC}}) {{
+      pageInfo {{ hasNextPage endCursor }}
+      nodes {{ {CHAMPS_REPO} }}
+    }}
+  }}
+}}"
+    );
+    client
+        .graphql_paginee(
+            &requete,
+            json!({ "org": org }),
+            &["organization", "repositories"],
+            "nodes",
+        )
+        .await
+}
+
+pub async fn collect(
+    jeton: String,
+    force: bool,
+    precedent: Option<Data>,
+    prog: Progress,
+) -> Result<Data, String> {
+    let client = Arc::new(Client::new(jeton)?);
+
     prog("Identification du compte…".into(), 0, 0);
-    let login = run_gh(&[
-        "api".into(),
-        "user".into(),
-        "--jq".into(),
-        ".login".into(),
-    ])
-    .await?
-    .trim()
-    .to_string();
+    let login = client
+        .graphql(REQ_VIEWER, json!({}))
+        .await?
+        .pointer("/data/viewer/login")
+        .and_then(|v| v.as_str())
+        .ok_or("GitHub n'a pas renvoyé de compte")?
+        .to_string();
 
     let mut erreurs: Vec<String> = Vec::new();
 
     prog("Liste des organisations…".into(), 0, 0);
-    let orgs: Vec<String> = match run_gh(&[
-        "api".into(),
-        "user/orgs".into(),
-        "--paginate".into(),
-        "--jq".into(),
-        ".[].login".into(),
-    ])
-    .await
+    let orgs: Vec<String> = match client
+        .graphql_paginee::<Org>(REQ_ORGS, json!({}), &["viewer", "organizations"], "nodes")
+        .await
     {
-        Ok(s) => s
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect(),
+        Ok(v) => v.into_iter().map(|o| o.login).collect(),
         Err(e) => {
             // Un échec réseau ferait disparaître d'un coup tous les dépôts
             // d'organisation : on repart de la dernière liste connue.
@@ -172,32 +184,29 @@ pub async fn collect(force: bool, precedent: Option<Data>, prog: Progress) -> Re
 
     let mut bruts: Vec<GhRepo> = Vec::new();
     let mut vus: HashSet<String> = HashSet::new();
-    for owner in std::iter::once(&login).chain(orgs.iter()) {
-        prog(format!("Liste des dépôts de {owner}…"), 0, 0);
-        // Sans argument, « gh repo list » couvre le compte authentifié
-        // (dépôts privés inclus) ; avec argument, une organisation.
-        let mut args: Vec<String> = vec!["repo".into(), "list".into()];
-        if owner != &login {
-            args.push(owner.clone());
+
+    prog(format!("Liste des dépôts de {login}…"), 0, 0);
+    match depots_du_compte(&client).await {
+        Ok(liste) => {
+            for r in liste {
+                if vus.insert(r.name_with_owner.clone()) {
+                    bruts.push(r);
+                }
+            }
         }
-        args.extend([
-            "--limit".into(),
-            "1000".into(),
-            "--json".into(),
-            CHAMPS_REPO.into(),
-        ]);
-        match run_gh(&args).await {
-            Ok(s) => {
-                let brut = if s.trim().is_empty() { "[]" } else { s.trim() };
-                let liste: Vec<GhRepo> = serde_json::from_str(brut)
-                    .map_err(|e| format!("réponse de gh repo list illisible : {e}"))?;
+        Err(e) => erreurs.push(format!("dépôts de {login} : {e}")),
+    }
+    for org in &orgs {
+        prog(format!("Liste des dépôts de {org}…"), 0, 0);
+        match depots_de_lorg(&client, org).await {
+            Ok(liste) => {
                 for r in liste {
                     if vus.insert(r.name_with_owner.clone()) {
                         bruts.push(r);
                     }
                 }
             }
-            Err(e) => erreurs.push(format!("dépôts de {owner} : {e}")),
+            Err(e) => erreurs.push(format!("dépôts de {org} : {e}")),
         }
     }
 
@@ -258,6 +267,7 @@ pub async fn collect(force: bool, precedent: Option<Data>, prog: Progress) -> Re
         let cache = ancien.get(&full).cloned();
         let prog = prog.clone();
         let faits = faits.clone();
+        let client = client.clone();
         async move {
             // On ne repagine que ce qui a bougé : le nombre d'étoiles fait
             // office d'empreinte. Une fiche sans évènements n'est jamais
@@ -277,7 +287,7 @@ pub async fn collect(force: bool, precedent: Option<Data>, prog: Progress) -> Re
                 faits.load(Ordering::Relaxed),
                 total,
             );
-            let res = stargazers(&full).await;
+            let res = stargazers(&client, &full).await;
             let n = faits.fetch_add(1, Ordering::Relaxed) + 1;
             prog(format!("Étoiles de {full}…"), n, total);
             (i, res)

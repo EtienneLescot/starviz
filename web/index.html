@@ -13,6 +13,28 @@
 </head>
 <body>
 
+<!-- Voile de connexion : tant qu'aucun jeton n'est disponible, il n'y a
+     rien à afficher derrière, et rien d'autre à proposer. -->
+<div class="auth hidden" id="auth">
+  <div class="auth-carte">
+    <h2>Connexion à GitHub</h2>
+    <p class="auth-intro" id="auth-intro">
+      StarViz a besoin d'accéder à vos dépôts pour en lire les étoiles.
+    </p>
+    <div class="auth-code hidden" id="auth-code">
+      <p>Saisissez ce code sur GitHub :</p>
+      <strong id="auth-user-code"></strong>
+      <p class="auth-attente">En attente de votre validation…</p>
+    </div>
+    <div class="auth-actions">
+      <button class="btn accent" id="auth-start">Se connecter avec GitHub</button>
+      <a class="btn hidden" id="auth-open" href="#" target="_blank" rel="noreferrer">Ouvrir GitHub</a>
+      <button class="btn hidden" id="auth-fermer">Annuler</button>
+    </div>
+    <p class="auth-erreur hidden" id="auth-erreur"></p>
+  </div>
+</div>
+
 <header class="topbar">
   <div class="brand">
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.6l2.9 5.88 6.5.95-4.7 4.58 1.11 6.47L12 17.43l-5.81 3.05 1.11-6.47L2.6 9.43l6.5-.95L12 2.6z"/></svg>
@@ -24,6 +46,8 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
       Actualiser
     </button>
+    <button class="btn hidden" id="connect" title="Obtenir un jeton propre à StarViz, au lieu d'emprunter celui de gh">Connecter GitHub</button>
+    <button class="btn hidden" id="logout" title="Oublier le jeton GitHub conservé dans le trousseau">Déconnexion</button>
     <button class="btn icon" id="theme" title="Basculer le thème">◐</button>
     <button class="btn icon" id="quit" title="Fermer StarViz">✕</button>
   </div>

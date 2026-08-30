@@ -44,6 +44,22 @@ pub struct Data {
     pub errors: Vec<String>,
 }
 
+/// État de l'authentification, replié dans le même sondage que la collecte
+/// pour ne pas ajouter une seconde boucle côté front.
+#[derive(Serialize, Clone, Debug)]
+pub struct AuthStatus {
+    pub connecte: bool,
+    /// « oauth » (device flow), « gh » (jeton emprunté au CLI), « aucune ».
+    pub source: &'static str,
+    /// Faux quand aucune application OAuth n'est configurée à la compilation :
+    /// le bouton de connexion n'a alors rien à appeler.
+    pub device_flow_possible: bool,
+    pub en_attente: bool,
+    pub user_code: Option<String>,
+    pub verification_uri: Option<String>,
+    pub erreur: Option<String>,
+}
+
 /// Ce que le front lit à chaque tour de `poll()`.
 #[derive(Serialize, Clone, Debug)]
 pub struct Status {
@@ -54,9 +70,11 @@ pub struct Status {
     pub error: Option<String>,
     pub generated_at: Option<String>,
     pub has_data: bool,
+    pub auth: AuthStatus,
 }
 
-/// Sortie brute de `gh repo list --json ...`.
+/// Un dépôt tel que GraphQL le renvoie. Les noms de champs sont ceux de
+/// l'API ; ils coïncidaient déjà avec ceux de `gh repo list --json`.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GhRepo {

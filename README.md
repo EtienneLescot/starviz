@@ -51,6 +51,39 @@ Les deux chemins coexistent et lisent le même
 `~/.local/share/starviz/data.json` : `starviz.py` reste nécessaire pour
 `--trending` et pour le relevé planifié `--fetch-only`.
 
+### Connexion à GitHub
+
+L'application n'appelle plus `gh` : elle interroge l'API directement, avec un
+jeton obtenu par *device flow* — le flux OAuth qui ne demande ni serveur de
+redirection ni secret client. Au premier lancement, StarViz affiche un code
+court à saisir sur github.com, puis range le jeton dans le gestionnaire
+d'identifiants du système (Credential Manager, Trousseau, Secret Service).
+
+À défaut de jeton propre, StarViz emprunte celui de `gh` s'il est installé et
+authentifié. La dépendance passe donc d'obligatoire à commode : elle rend le
+premier lancement transparent pour qui a déjà `gh`, sans l'imposer aux autres.
+
+Le `client_id` de l'application OAuth est inscrit dans les sources. Ce n'est
+pas un secret : il figure en clair dans toute application de bureau utilisant
+ce flux, et ne donne accès à rien sans validation explicite sur github.com.
+Une compilation depuis les sources se connecte donc sans configuration.
+
+Pour pointer une autre application le temps d'un essai :
+
+```bash
+STARVIZ_CLIENT_ID=Ov23li... npm run dev
+```
+
+Les portées demandées sont `repo` et `read:org` : la première pour voir les
+dépôts privés dans la liste, la seconde pour énumérer les organisations.
+L'application OAuth a **Enable Device Flow** activé et l'expiration des jetons
+désactivée — StarViz ne gère pas encore le `refresh_token`.
+
+Quand le jeton vient de `gh`, un bouton **Connecter GitHub** apparaît dans la
+barre du haut : c'est le chemin pour passer à un jeton propre. **Déconnexion**
+n'apparaît que pour un jeton OAuth, `gh` n'étant pas déconnectable depuis
+l'application.
+
 Compilation : Rust stable, plus WebView2 sous Windows (fourni avec Windows 11).
 Le code ne contient rien de spécifique à une plateforme, mais **seule la cible
 Windows a été construite et testée à ce jour**.
@@ -98,10 +131,11 @@ dépôts.
 
 ## Fonctionnement
 
-- `starviz.py` interroge `gh` : `gh repo list` pour vos dépôts et ceux de vos
-  organisations, puis l'API GraphQL pour les stargazers — celle-ci renvoie la
-  date de mise en favori **et** la localisation du profil en une seule
-  pagination, là où l'API REST demanderait une requête par utilisateur.
+- `starviz.py` interroge `gh` ; l'application desktop interroge l'API
+  directement. Dans les deux cas, les dépôts viennent de `repo list` (le vôtre
+  et ceux de vos organisations) et les stargazers de l'API GraphQL — celle-ci
+  renvoie la date de mise en favori **et** la localisation du profil en une
+  seule pagination, là où l'API REST demanderait une requête par utilisateur.
 - Le résultat est conservé dans `~/.local/share/starviz/data.json`. Une
   actualisation ne recharge que les dépôts dont le nombre d'étoiles a changé
   (quelques secondes) ; `Maj`+clic sur « Actualiser » force tout. Cet

@@ -2,11 +2,14 @@
 // icône, pas depuis un terminal.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod api;
+mod auth;
 mod fetcher;
 mod github;
 mod model;
 mod store;
 
+use auth::Etat;
 use fetcher::Fetcher;
 use model::{Data, Status};
 use std::sync::Arc;
@@ -20,8 +23,8 @@ fn hello() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn status(fetcher: State<Arc<Fetcher>>) -> Status {
-    fetcher.status()
+fn status(fetcher: State<Arc<Fetcher>>, etat: State<Arc<Etat>>) -> Status {
+    fetcher.status(etat.statut())
 }
 
 /// `None` quand aucun historique n'existe encore : le front l'interprète
@@ -32,24 +35,82 @@ fn data(fetcher: State<Arc<Fetcher>>) -> Option<Data> {
 }
 
 #[tauri::command]
-fn refresh(force: Option<bool>, fetcher: State<Arc<Fetcher>>) -> serde_json::Value {
+fn refresh(
+    force: Option<bool>,
+    fetcher: State<Arc<Fetcher>>,
+    etat: State<Arc<Etat>>,
+) -> serde_json::Value {
     let started = fetcher.start(force.unwrap_or(false));
-    let s = fetcher.status();
-    serde_json::json!({
-        "started": started,
-        "state": s.state,
-        "message": s.message,
-        "done": s.done,
-        "total": s.total,
-        "error": s.error,
-        "generated_at": s.generated_at,
-        "has_data": s.has_data,
-    })
+    let s = fetcher.status(etat.statut());
+    serde_json::json!({ "started": started, "status": s })
 }
 
 #[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+/// Ouvre une session : GitHub renvoie un code court, que l'interface affiche
+/// pendant que l'on attend la validation sur github.com.
+#[tauri::command]
+async fn auth_start(app: AppHandle) -> Result<serde_json::Value, String> {
+    let etat = app.state::<Arc<Etat>>().inner().clone();
+    match demarrer_connexion(&app).await {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            // L'échec doit être consigné dans l'état, pas seulement renvoyé :
+            // le sondage réécrit le bandeau chaque seconde, et effacerait un
+            // message que le front aurait posé de son côté.
+            etat.terminer(Some(e.clone()));
+            Err(e)
+        }
+    }
+}
+
+async fn demarrer_connexion(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let client_id = auth::client_id().ok_or(
+        "aucune application OAuth n'est configurée dans cette compilation — \
+         StarViz utilise le jeton de `gh`",
+    )?;
+    let etat = app.state::<Arc<Etat>>().inner().clone();
+    let attente = auth::demarrer(&client_id).await?;
+    etat.poser_attente(attente.clone());
+
+    let reponse = serde_json::json!({
+        "user_code": attente.user_code,
+        "verification_uri": attente.verification_uri,
+    });
+
+    // L'attente dure jusqu'à quinze minutes : elle vit dans sa propre tâche,
+    // et l'interface suit son avancement par le sondage habituel.
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let resultat = auth::attendre(&client_id, &attente).await;
+        match resultat {
+            Ok(jeton) => {
+                if let Err(e) = auth::ecrire_jeton(&jeton) {
+                    etat.terminer(Some(e));
+                    return;
+                }
+                etat.reevaluer().await;
+                etat.terminer(None);
+                // Le compte vient de changer : l'historique du précédent ne
+                // vaut plus rien, on repart d'une collecte complète.
+                handle.state::<Arc<Fetcher>>().inner().clone().start(true);
+            }
+            Err(e) => etat.terminer(Some(e)),
+        }
+    });
+    Ok(reponse)
+}
+
+#[tauri::command]
+async fn auth_logout(app: AppHandle) -> Result<(), String> {
+    auth::effacer_jeton()?;
+    let etat = app.state::<Arc<Etat>>().inner().clone();
+    etat.reevaluer().await;
+    etat.terminer(None);
+    Ok(())
 }
 
 fn montrer(app: &AppHandle) {
@@ -71,7 +132,16 @@ fn main() {
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(Arc::new(Fetcher::new()))
-        .invoke_handler(tauri::generate_handler![hello, status, data, refresh, quit])
+        .manage(Arc::new(Etat::new()))
+        .invoke_handler(tauri::generate_handler![
+            hello,
+            status,
+            data,
+            refresh,
+            quit,
+            auth_start,
+            auth_logout
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -122,12 +192,19 @@ fn main() {
             }
             tray.build(app)?;
 
-            // Première collecte : immédiate si l'historique est absent ou
-            // vieux d'une heure, comme le faisait le serveur Python.
+            // Déterminer d'où vient le jeton demande d'interroger `gh`, donc
+            // de lancer un processus : hors du chemin d'affichage de la
+            // fenêtre, qui n'a pas à l'attendre.
+            let etat = handle.state::<Arc<Etat>>().inner().clone();
             let fetcher = handle.state::<Arc<Fetcher>>().inner().clone();
-            if fetcher.est_perime() {
-                fetcher.start(false);
-            }
+            tauri::async_runtime::spawn(async move {
+                etat.reevaluer().await;
+                // Première collecte : immédiate si l'historique est absent ou
+                // vieux d'une heure, comme le faisait le serveur Python.
+                if etat.statut().connecte && fetcher.est_perime() {
+                    fetcher.start(false);
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

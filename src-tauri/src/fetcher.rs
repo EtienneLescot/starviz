@@ -36,9 +36,12 @@ impl Fetcher {
         }
     }
 
-    pub fn status(&self) -> Status {
+    /// L'état de connexion est fourni par l'appelant : le collecteur n'a pas
+    /// à connaître le trousseau, et le front n'a qu'une boucle de sondage.
+    pub fn status(&self, auth: crate::model::AuthStatus) -> Status {
         let g = self.inner.lock().unwrap();
         Status {
+            auth,
             state: g.state,
             message: g.message.clone(),
             done: g.done,
@@ -92,7 +95,17 @@ impl Fetcher {
         };
 
         tauri::async_runtime::spawn(async move {
-            match github::collect(force, precedent, prog).await {
+            // Le jeton est résolu ici plutôt qu'à l'appel : `start` reste
+            // synchrone pour les commandes, et l'absence de connexion se
+            // présente à l'interface comme n'importe quel autre échec.
+            let Some((jeton, _)) = crate::auth::jeton_actif().await else {
+                let mut g = moi.inner.lock().unwrap();
+                g.state = "error";
+                g.error = Some("aucun compte GitHub connecté".into());
+                g.message = "Connexion requise".into();
+                return;
+            };
+            match github::collect(jeton, force, precedent, prog).await {
                 Ok(data) => {
                     if let Err(e) = store::write(&data) {
                         // L'historique n'a pas pu être écrit : l'affichage est

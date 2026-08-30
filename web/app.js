@@ -815,6 +815,58 @@ function renderGeo() {
   }).join('');
 }
 
+/* ------------------------------------------------------------ connexion */
+
+// Le voile s'impose quand aucun jeton n'est disponible, mais il s'ouvre aussi
+// à la demande : on peut vouloir remplacer le jeton emprunté à gh par un
+// jeton propre, et c'est le seul chemin pour le faire.
+let connexionDemandee = false;
+// Dernier état reçu : ouvrir ou fermer le voile redessine à partir de lui,
+// plutôt que de manipuler les classes à la main. Sans ça, le panneau
+// s'affichait avec le texte de l'autre cas jusqu'au sondage suivant.
+let dernierAuth = null;
+
+function renderAuth(auth) {
+  // Le serveur Python ignore l'authentification : son statut n'a pas de champ
+  // « auth », et il n'y a alors pas de voile à afficher.
+  if (!auth) return;
+  dernierAuth = auth;
+  if (auth.source === 'oauth') connexionDemandee = false;
+
+  const ouvert = !auth.connecte || connexionDemandee;
+  $('#auth').classList.toggle('hidden', !ouvert);
+  $('#connect').classList.toggle('hidden',
+    !(auth.connecte && auth.source === 'gh' && auth.device_flow_possible));
+  $('#logout').classList.toggle('hidden', auth.source !== 'oauth');
+  $('#auth-fermer').classList.toggle('hidden', !auth.connecte);
+  if (!ouvert) return;
+
+  $('#auth-intro').textContent = auth.source === 'gh'
+    ? "StarViz emprunte pour l'instant le jeton de « gh ». Se connecter lui en "
+      + 'donne un propre, rangé dans le trousseau du système.'
+    : "StarViz a besoin d'accéder à vos dépôts pour en lire les étoiles.";
+
+  if (!auth.device_flow_possible) {
+    $('#auth-intro').textContent =
+      "Cette compilation n'embarque pas d'application OAuth : StarViz emprunte "
+      + "le jeton de « gh ». Lancez « gh auth login », puis actualisez.";
+    $('#auth-start').classList.add('hidden');
+    return;
+  }
+
+  const enAttente = auth.en_attente && !!auth.user_code;
+  $('#auth-code').classList.toggle('hidden', !enAttente);
+  $('#auth-start').classList.toggle('hidden', enAttente);
+  $('#auth-open').classList.toggle('hidden', !enAttente);
+  if (enAttente) {
+    $('#auth-user-code').textContent = auth.user_code;
+    $('#auth-open').href = auth.verification_uri || 'https://github.com/login/device';
+  }
+  const err = $('#auth-erreur');
+  err.textContent = auth.erreur || '';
+  err.classList.toggle('hidden', !auth.erreur);
+}
+
 /* -------------------------------------------------------------- réseau */
 
 async function loadData() {
@@ -854,6 +906,7 @@ async function poll() {
     if (!resp.ok) return;
     status = await resp.json();
   } catch { return; }
+  renderAuth(status.auth);
   state.fetching = status.state === 'running';
   updateProgressUI(status);
   if (status.error) showError(status.error); else if (lastState === 'running') hideError();
@@ -956,6 +1009,28 @@ function bindUI() {
   });
   bindSeg('#seg-align', 'align', () => { renderChart(false); renderLegend(); });
   bindSeg('#seg-scale', 'scale', () => { renderChart(false); renderLegend(); });
+
+  $('#auth-start').addEventListener('click', async (e) => {
+    if (!TAURI) return;
+    // Les erreurs sont consignées côté Rust et remontent par le sondage :
+    // les écrire ici aussi les ferait clignoter une seconde puis disparaître.
+    e.target.disabled = true;
+    try {
+      await TAURI.core.invoke('auth_start');
+    } catch { /* affichée par renderAuth */ }
+    e.target.disabled = false;
+  });
+  $('#logout').addEventListener('click', () => {
+    if (TAURI) TAURI.core.invoke('auth_logout').catch(() => {});
+  });
+  $('#connect').addEventListener('click', () => {
+    connexionDemandee = true;
+    renderAuth(dernierAuth);
+  });
+  $('#auth-fermer').addEventListener('click', () => {
+    connexionDemandee = false;
+    renderAuth(dernierAuth);
+  });
 
   $('#refresh').addEventListener('click', (e) => refresh(e.shiftKey));
   $('#theme').addEventListener('click', () =>

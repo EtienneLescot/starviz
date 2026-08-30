@@ -18,6 +18,12 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "time", "rt", "macros", "sync"] }
 futures = "0.3"
 dirs = "6"
+# Meme version que celle deja tiree par tauri : pas de seconde pile HTTP.
+reqwest = "0.13"
+urlencoding = "2"
+# `default = ["v1"]` active le gestionnaire d'identifiants natif de chaque
+# plateforme : Credential Manager, Keychain, Secret Service.
+keyring = "4"
 chrono = "0.4"
 
 # Une app locale qui affiche des courbes n'a aucune raison de traîner les
