@@ -64,9 +64,9 @@ fn reglages() -> settings::Settings {
     settings::read()
 }
 
-/// Les valeurs recues sont bornees avant d'etre ecrites, et la version bornee
-/// est renvoyee : l'interface affiche ce qui a reellement ete retenu, pas ce
-/// qu'elle a demande.
+/// Les valeurs reçues sont bornées avant d'être écrites, et la version bornée
+/// est renvoyée : l'interface affiche ce qui a réellement été retenu, pas ce
+/// qu'elle a demandé.
 #[tauri::command]
 fn set_reglages(valeurs: settings::Settings) -> Result<settings::Settings, String> {
     let bornees = valeurs.borner();
@@ -86,9 +86,9 @@ fn ouvrir_dossier_donnees() -> Result<(), String> {
 
 /* ------------------------------------------------------------ trending */
 
-/// Lit le journal ecrit par `starviz.py --trending`. L'application ne releve
-/// rien elle-meme : le relevé demande un navigateur sans interface et doit
-/// tourner meme quand la fenetre est fermee.
+/// Lit le journal écrit par `starviz.py --trending`. L'application ne relève
+/// rien elle-même : le relevé demande un navigateur sans interface et doit
+/// tourner même quand la fenêtre est fermée.
 #[tauri::command]
 fn trending() -> trending::Trending {
     trending::lire()

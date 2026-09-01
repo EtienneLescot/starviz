@@ -152,9 +152,9 @@ pub async fn collect(
     reglages: crate::settings::Settings,
 ) -> Result<Data, String> {
     let client = Arc::new(Client::new(jeton, reglages.tentatives)?);
-    // Concurrence reglable : au-dela d'une douzaine de requetes simultanees on
+    // Concurrence réglable : au-delà d'une douzaine de requêtes simultanées on
     // heurte les limites secondaires de GitHub, dont les blocages temporaires
-    // coutent bien plus que les secondes gagnees. Le bornage est dans
+    // coûtent bien plus que les secondes gagnées. Le bornage est dans
     // `settings::Settings::borner`.
     let concurrence = reglages.concurrence.max(1);
 

@@ -51,10 +51,10 @@ pub struct Ligne {
     pub scope: String,
     pub window: String,
     pub lang: Option<String>,
-    /// Dernier rang connu, quelle qu'en soit la source. Une case quittee garde
-    /// le sien : c'est `sortie` qui dit qu'il n'est plus d'actualite.
+    /// Dernier rang connu, quelle qu'en soit la source. Une case quittée garde
+    /// le sien : c'est `sortie` qui dit qu'il n'est plus d'actualité.
     pub rank: i64,
-    /// Vrai quand la case n'est plus occupee au dernier releve.
+    /// Vrai quand la case n'est plus occupée au dernier relevé.
     pub sortie: bool,
     pub total: Option<i64>,
     pub meilleur: i64,
@@ -87,7 +87,7 @@ pub struct Trending {
     pub chemin: String,
     pub dernier_releve: Option<String>,
     pub nb_releves: usize,
-    /// Classements consultes au dernier releve, et cases occupees.
+    /// Classements consultés au dernier relevé, et cases occupées.
     pub consultes: usize,
     pub occupes: usize,
     pub lignes: Vec<Ligne>,
@@ -118,8 +118,8 @@ fn nom_case(c: &Case) -> String {
 
 /// Extrait d'un nom de capture la case et le rang qu'elle atteste.
 ///
-/// Le releve les nomme `<horodatage>_<portee>_<fenetre>_<langage>_rang<N>.png`,
-/// avec un suffixe `_wayback` pour celles reconstituees a posteriori.
+/// Le relevé les nomme `<horodatage>_<portée>_<fenêtre>_<langage>_rang<N>.png`,
+/// avec un suffixe `_wayback` pour celles reconstituées a posteriori.
 fn depuis_capture(nom: &str) -> Option<(Case, i64)> {
     let base = nom.strip_suffix(".png").or_else(|| nom.strip_suffix(".PNG"))?;
     let base = base.strip_suffix("_wayback").unwrap_or(base);
@@ -211,8 +211,8 @@ pub fn lire() -> Trending {
             .or_insert((rang, c.fichier.clone()));
     }
 
-    // Dernier rang vu dans le journal, avec son total, meme si la case a ete
-    // quittee depuis : une sortie ne doit pas effacer le rang atteint.
+    // Dernier rang vu dans le journal, avec son total, même si la case a été
+    // quittée depuis : une sortie ne doit pas effacer le rang atteint.
     let mut dernier_connu: HashMap<Case, (i64, Option<i64>)> = HashMap::new();
     for r in &releves {
         for t in &r.found {
@@ -220,7 +220,7 @@ pub fn lire() -> Trending {
         }
     }
 
-    // Taille d'un classement, par portee. Les pages Trending en listent un
+    // Taille d'un classement, par portée. Les pages Trending en listent un
     // nombre constant ; une capture n'enregistre que le rang, pas le total, et
     // c'est la seule facon honnete de le retrouver.
     let mut taille_par_portee: HashMap<String, i64> = HashMap::new();
@@ -242,8 +242,8 @@ pub fn lire() -> Trending {
         HashMap::new()
     };
 
-    // On liste toutes les cases jamais occupees, pas seulement celles du
-    // dernier releve : sortir d'un classement est une information, et le
+    // On liste toutes les cases jamais occupées, pas seulement celles du
+    // dernier relevé : sortir d'un classement est une information, et le
     // meilleur rang merite de survivre a la sortie.
     let actuels: HashMap<Case, &Trouve> = dernier.found.iter().map(|t| (case(t), t)).collect();
     let cas: std::collections::BTreeSet<Case> =
@@ -261,7 +261,7 @@ pub fn lire() -> Trending {
                 (None, Some((p, _))) => *p,
                 (None, None) => return None,
             };
-            // Le rang affiche est le dernier connu, du releve courant s'il y
+            // Le rang affiché est le dernier connu, du relevé courant s'il y
             // figure, sinon du journal, sinon de la capture qui l'atteste.
             let (rank, total) = match courant {
                 Some(t) => (t.rank, t.total),
@@ -293,9 +293,8 @@ pub fn lire() -> Trending {
         })
         .flatten()
         .collect();
-    // Les cases occupees d'abord, par rang ; les sorties ensuite.
-    // Du meilleur rang jamais atteint au moins bon : c'est le palmares, pas
-    // l'etat courant. A egalite, le rang du jour departage.
+    // Du meilleur rang jamais atteint au moins bon : c'est le palmarès, pas
+    // l'état courant. À égalité, le rang du jour départage.
     lignes.sort_by_key(|l| (l.meilleur, l.rank));
 
     // Journal : on remonte les relevés deux à deux, du plus récent au plus
@@ -354,10 +353,10 @@ pub fn lire() -> Trending {
 
 /// Rend une capture sous forme de `data:` URI.
 ///
-/// Les captures vivent dans `XDG_DATA_HOME`, hors des ressources embarquees :
-/// le protocole `asset:` demanderait une portee declaree par chemin, or
-/// celui-ci depend du dossier personnel. Un `data:` URI passe par la CSP
-/// existante, qui autorise deja `data:` pour les images.
+/// Les captures vivent dans `XDG_DATA_HOME`, hors des ressources embarquées :
+/// le protocole `asset:` demanderait une portée déclarée par chemin, or
+/// celui-ci dépend du dossier personnel. Un `data:` URI passe par la CSP
+/// existante, qui autorise déjà `data:` pour les images.
 pub fn capture(fichier: &str) -> Result<String, String> {
     use base64::Engine;
     // Le nom vient de l'interface : on refuse tout ce qui pourrait sortir du

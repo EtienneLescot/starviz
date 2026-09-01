@@ -12,8 +12,8 @@ use std::time::Duration;
 pub struct Client {
     http: reqwest::Client,
     jeton: String,
-    /// Tentatives avant d'abandonner sur erreur transitoire. Reglable depuis
-    /// l'ecran Reglages plutot que fige a la compilation.
+    /// Tentatives avant d'abandonner sur erreur transitoire. Réglable depuis
+    /// l'écran Réglages plutôt que figé à la compilation.
     tentatives: usize,
 }
 
