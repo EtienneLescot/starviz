@@ -13,9 +13,13 @@ use std::path::PathBuf;
 pub fn data_dir() -> PathBuf {
     match std::env::var_os("XDG_DATA_HOME") {
         Some(v) if !v.is_empty() => PathBuf::from(v).join("starviz"),
+        // Composant par composant : un littéral « .local/share » s'afficherait
+        // avec des séparateurs mélangés sous Windows.
         _ => dirs::home_dir()
             .unwrap_or_default()
-            .join(".local/share/starviz"),
+            .join(".local")
+            .join("share")
+            .join("starviz"),
     }
 }
 

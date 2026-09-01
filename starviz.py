@@ -57,6 +57,11 @@ MIME = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
     ".ico": "image/x-icon",
+    # Les polices et la topographie sont servies depuis web/ : sans leur type,
+    # le navigateur reçoit du flux binaire indifférencié.
+    ".woff2": "font/woff2",
+    ".json": "application/json",
+    ".txt": "text/plain; charset=utf-8",
 }
 
 # Chemins où `gh` peut vivre quand l'app est lancée depuis la barre des tâches

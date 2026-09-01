@@ -1,17 +1,28 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ce dont la fenêtre principale a besoin : l'IPC vers les commandes Rust, et l'ouverture des profils GitHub dans le navigateur du système.",
-  "windows": ["main"],
+  "description": "Ce dont la fenetre principale a besoin : l'IPC vers les commandes Rust, les boutons systeme d'une fenetre sans cadre, et l'ouverture des profils GitHub dans le navigateur du systeme.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://github.com/*" }]
+      "allow": [
+        {
+          "url": "https://github.com/*"
+        }
+      ]
     }
   ]
 }

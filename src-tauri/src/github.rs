@@ -20,11 +20,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Requêtes simultanées vers GitHub. Au-delà, on flirte avec les limites
-/// secondaires — qui se traduisent par des blocages temporaires, bien plus
-/// pénibles qu'une collecte deux secondes plus lente.
-const CONCURRENCE: usize = 6;
-
 /// Les champs d'un dépôt, identiques à ceux que demandait `gh repo list` :
 /// le format de `data.json` doit rester lisible par `starviz.py`.
 const CHAMPS_REPO: &str = "nameWithOwner name description stargazerCount isFork \
@@ -154,8 +149,14 @@ pub async fn collect(
     force: bool,
     precedent: Option<Data>,
     prog: Progress,
+    reglages: crate::settings::Settings,
 ) -> Result<Data, String> {
-    let client = Arc::new(Client::new(jeton)?);
+    let client = Arc::new(Client::new(jeton, reglages.tentatives)?);
+    // Concurrence reglable : au-dela d'une douzaine de requetes simultanees on
+    // heurte les limites secondaires de GitHub, dont les blocages temporaires
+    // coutent bien plus que les secondes gagnees. Le bornage est dans
+    // `settings::Settings::borner`.
+    let concurrence = reglages.concurrence.max(1);
 
     prog("Identification du compte…".into(), 0, 0);
     let login = client
@@ -293,7 +294,7 @@ pub async fn collect(
             (i, res)
         }
     }))
-    .buffer_unordered(CONCURRENCE)
+    .buffer_unordered(concurrence)
     .collect::<Vec<_>>()
     .await;
 

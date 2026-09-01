@@ -105,7 +105,10 @@ impl Fetcher {
                 g.message = "Connexion requise".into();
                 return;
             };
-            match github::collect(jeton, force, precedent, prog).await {
+            // Relus a chaque collecte : changer la concurrence prend effet a
+            // la suivante, sans redemarrer l'application.
+            let reglages = crate::settings::read();
+            match github::collect(jeton, force, precedent, prog, reglages).await {
                 Ok(data) => {
                     if let Err(e) = store::write(&data) {
                         // L'historique n'a pas pu être écrit : l'affichage est

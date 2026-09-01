@@ -36,6 +36,9 @@ npm run build    # produit l'installeur dans src-tauri/target/release/bundle/
 
 Ce qu'elle apporte :
 
+- **Une fenêtre sans cadre** : la barre de titre est dessinée par la page, avec
+  ses propres boutons système. Hors application — dans un onglet servi par
+  `starviz.py` — ils s'effacent, faute de fenêtre à commander.
 - **Zone de notification** : fermer la fenêtre la replie au lieu de quitter ;
   le menu du tray permet d'actualiser ou de quitter pour de bon.
 - **Collecte parallèle** : six dépôts interrogés de front au lieu d'une file
@@ -90,35 +93,48 @@ Windows a été construite et testée à ce jour**.
 
 ## Ce que montre l'application
 
-- **Courbes cumulées** par dépôt, plus une courbe **Total** en pointillés.
-- **Cadence** : histogramme empilé des étoiles gagnées, au pas choisi
-  (automatique, jour, semaine ou mois).
-- **Par âge** : toutes les courbes ramenées à leur première étoile, pour comparer
-  des dépôts lancés à des dates différentes.
-- Échelle **linéaire ou logarithmique** (utile quand un dépôt écrase les autres).
-- **Indicateurs** : total, 7 jours, 30 jours, meilleure journée, dernière étoile.
-- **Géographie des stargazers** : répartition par continent et top pays, déduite
-  du champ « location » des profils (texte libre, environ 40 % des profils le
-  renseignent ; ~91 % de ces valeurs sont rattachées à un pays).
-- **Derniers stargazers** avec avatars, dépôt et localisation.
+Quatre écrans, atteignables par le rail ou par les touches `1` à `4`.
+
+**Vue d'ensemble** — indicateurs (total, 7 jours, 30 jours, meilleure journée,
+dernière étoile), le graphe, un résumé géographique et les derniers stargazers.
+Le graphe offre les **courbes cumulées** par dépôt plus une courbe **Total** en
+pointillés, la **cadence** en histogramme empilé au pas choisi, l'alignement
+**par âge** qui ramène chaque courbe à sa première étoile pour comparer des
+dépôts lancés à des dates différentes, et une échelle **linéaire ou
+logarithmique** — utile quand un dépôt écrase les autres.
+
+**Géographie** — une carte choroplèthe du monde, zoomable, plus la répartition
+par continent et le top pays. Le tout est déduit du champ « location » des
+profils : du texte libre, renseigné par environ 40 % d'entre eux, dont ~91 %
+des valeurs sont rattachées à un pays.
+
+**Trending** — les classements relevés par `starviz.py --trending` : rang
+courant, meilleur rang observé, écart avec le relevé précédent, captures et
+journal des évènements. L'application lit ce journal, elle ne relève rien
+elle-même.
+
+**Réglages** — concurrence de la collecte, réessai sur HTTP 5xx, thème,
+emplacement des données et raccourcis.
 
 ### Une seule sélection
 
 Il n'y a qu'une sélection de dépôts, et elle pilote tout : indicateurs, graphe,
-géographie et derniers stargazers. Chaque panneau rappelle son périmètre dans
-son titre, et la sélection est mémorisée d'une session à l'autre.
+géographie et derniers stargazers. Elle est mémorisée d'une session à l'autre,
+et la pastille au centre de la barre de titre en rappelle en permanence le
+périmètre.
 
-Elle se fait dans un seul panneau, « Dépôts » : un clic sur une ligne n'affiche
-que ce dépôt (un second clic rétablit tout), un clic sur sa pastille de couleur
-l'ajoute ou le retire, et la barre du bas offre les raccourcis « Tous »,
-« Aucun » et un par compte ou organisation.
+Elle se fait dans la **palette**, ouverte par cette pastille ou par `Ctrl+K` :
+on filtre au clavier, `↵` ajoute ou retire un dépôt, `Alt+↵` l'isole, et la
+rangée du haut offre les raccourcis « Tous », « Aucun » et un par compte ou
+organisation.
 
 La légende sous le graphe est une simple clé de couleurs — elle liste ce qui est
 tracé et ne se clique pas. La barre d'outils du graphe ne contient que des
 options d'affichage.
 
-Raccourcis : `r` actualise, `Maj+r` ignore le cache, `Échap` réaffiche tous les
-dépôts.
+Raccourcis : `Ctrl+K` ouvre la sélection, `1`–`4` changent d'écran, `Ctrl+B`
+replie le rail, `r` actualise, `Maj+R` ignore le cache, `Échap` réaffiche tous
+les dépôts.
 
 ## Utilisation en ligne de commande
 
@@ -147,6 +163,11 @@ dépôts.
 - Les tables géographiques (`web/geo-data.js`) sont versionnées ; les
   regénérer est optionnel et demande le paquet `iso-codes` (Debian/Ubuntu) :
   `python3 tools/gen_geo.py`.
+- Même principe pour le reste des actifs : les polices (`web/fonts/`, licence
+  OFL) et la carte (`web/vendor/` — d3, topojson-client, géométrie Natural
+  Earth) sont versionnées plutôt que chargées depuis un CDN. Une application de
+  bureau ne doit pas dépendre du réseau pour dessiner ce qu'elle a déjà, et la
+  CSP peut ainsi rester stricte.
 
 ## Relevé des classements « Trending »
 

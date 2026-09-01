@@ -21,6 +21,9 @@ dirs = "6"
 # Meme version que celle deja tiree par tauri : pas de seconde pile HTTP.
 reqwest = "0.13"
 urlencoding = "2"
+# Deja dans l'arbre via tauri : sert a rendre les captures en data: URI,
+# que la CSP autorise deja pour les images.
+base64 = "0.22"
 # `default = ["v1"]` active le gestionnaire d'identifiants natif de chaque
 # plateforme : Credential Manager, Keychain, Secret Service.
 keyring = "4"

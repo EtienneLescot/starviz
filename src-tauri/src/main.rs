@@ -7,7 +7,9 @@ mod auth;
 mod fetcher;
 mod github;
 mod model;
+mod settings;
 mod store;
+mod trending;
 
 use auth::Etat;
 use fetcher::Fetcher;
@@ -48,6 +50,50 @@ fn refresh(
 #[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+/* ------------------------------------------------------------ reglages */
+
+#[tauri::command]
+fn reglages() -> settings::Settings {
+    settings::read()
+}
+
+/// Les valeurs recues sont bornees avant d'etre ecrites, et la version bornee
+/// est renvoyee : l'interface affiche ce qui a reellement ete retenu, pas ce
+/// qu'elle a demande.
+#[tauri::command]
+fn set_reglages(valeurs: settings::Settings) -> Result<settings::Settings, String> {
+    let bornees = valeurs.borner();
+    settings::write(&bornees)?;
+    Ok(bornees)
+}
+
+#[tauri::command]
+fn infos() -> settings::Infos {
+    settings::infos()
+}
+
+#[tauri::command]
+fn ouvrir_dossier_donnees() -> Result<(), String> {
+    settings::ouvrir_dossier(&store::data_dir())
+}
+
+/* ------------------------------------------------------------ trending */
+
+/// Lit le journal ecrit par `starviz.py --trending`. L'application ne releve
+/// rien elle-meme : le relevé demande un navigateur sans interface et doit
+/// tourner meme quand la fenetre est fermee.
+#[tauri::command]
+fn trending() -> trending::Trending {
+    trending::lire()
+}
+
+/// Une capture, rendue a la demande : les charger toutes d'un coup ferait
+/// entrer plusieurs mega-octets d'images dans la page pour rien.
+#[tauri::command]
+fn capture(fichier: String) -> Result<String, String> {
+    trending::capture(&fichier)
 }
 
 /// Ouvre une session : GitHub renvoie un code court, que l'interface affiche
@@ -140,7 +186,13 @@ fn main() {
             refresh,
             quit,
             auth_start,
-            auth_logout
+            auth_logout,
+            reglages,
+            set_reglages,
+            infos,
+            ouvrir_dossier_donnees,
+            trending,
+            capture
         ])
         .setup(|app| {
             let handle = app.handle().clone();

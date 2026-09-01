@@ -9,11 +9,12 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const TENTATIVES: usize = 3;
-
 pub struct Client {
     http: reqwest::Client,
     jeton: String,
+    /// Tentatives avant d'abandonner sur erreur transitoire. Reglable depuis
+    /// l'ecran Reglages plutot que fige a la compilation.
+    tentatives: usize,
 }
 
 /// Une erreur qui a des chances de disparaître d'elle-même.
@@ -22,19 +23,19 @@ fn transitoire(statut: u16) -> bool {
 }
 
 impl Client {
-    pub fn new(jeton: String) -> Result<Self, String> {
+    pub fn new(jeton: String, tentatives: usize) -> Result<Self, String> {
         let http = reqwest::Client::builder()
             // GitHub refuse les requêtes sans User-Agent.
             .user_agent("starviz")
             .timeout(Duration::from_secs(60))
             .build()
             .map_err(|e| format!("client HTTP : {e}"))?;
-        Ok(Self { http, jeton })
+        Ok(Self { http, jeton, tentatives })
     }
 
     async fn envoyer(&self, faire: impl Fn() -> reqwest::RequestBuilder) -> Result<String, String> {
         let mut derniere = String::new();
-        for essai in 0..TENTATIVES {
+        for essai in 0..self.tentatives.max(1) {
             if essai > 0 {
                 tokio::time::sleep(Duration::from_secs(2 * essai as u64)).await;
             }

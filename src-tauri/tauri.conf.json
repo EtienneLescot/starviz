@@ -14,19 +14,24 @@
         "title": "StarViz",
         "width": 1280,
         "height": 860,
-        "minWidth": 880,
-        "minHeight": 560,
+        "minWidth": 900,
+        "minHeight": 620,
         "center": true,
-        "resizable": true
+        "resizable": true,
+        "decorations": false,
+        "transparent": false,
+        "visible": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://github.com https://avatars.githubusercontent.com; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://github.com https://avatars.githubusercontent.com; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Etienne Lescot",
     "shortDescription": "Évolution des étoiles de vos dépôts GitHub",
     "icon": [

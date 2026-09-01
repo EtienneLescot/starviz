@@ -74,12 +74,10 @@ if (TAURI) {
   });
 }
 
-const PALETTES = {
-  dark: ['#f5b301', '#38bdf8', '#34d399', '#f472b6', '#a78bfa', '#fb923c',
-         '#22d3ee', '#a3e635', '#f87171', '#818cf8', '#2dd4bf', '#e879f9'],
-  light: ['#d99400', '#0284c7', '#059669', '#db2777', '#7c3aed', '#ea580c',
-          '#0891b2', '#65a30d', '#dc2626', '#4f46e5', '#0d9488', '#c026d3'],
-};
+// Les quinze teintes de series du design system. Elles sont declinees par
+// theme dans style.css : le JS n'a pas a connaitre leurs valeurs, seulement
+// leur nombre — au-dela de quinze, l'oeil ne distingue plus.
+const SERIES = Array.from({ length: 15 }, (_, i) => `var(--s${i + 1})`);
 
 const nf = new Intl.NumberFormat('fr-FR');
 const fmtDay = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
@@ -97,8 +95,8 @@ const state = {
   align: 'date',    // date | age
   scale: 'linear',  // linear | log
   showTotal: true,
-  sort: 'stars',
-  sortDir: -1,
+  view: 'overview',   // overview | geo | trending | settings
+  railOpen: true,
   fetching: false,
 };
 
@@ -225,8 +223,7 @@ function timeTicks(t0, t1, target) {
 
 /* -------------------------------------------------------------- données */
 
-const palette = () =>
-  PALETTES[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+const palette = () => SERIES;
 
 /** Restaure la sélection mémorisée, en ignorant les dépôts disparus. */
 function restoreSelection() {
@@ -282,14 +279,15 @@ const saveSelection = () =>
 /* ---------------------------------------------------------------- rendu */
 
 function renderAll(animate) {
-  renderPresets();
   renderHeader();
+  renderScope();
   renderKpis();
   renderChart(animate);
   renderLegend();
-  renderTable();
   renderRecent();
   renderGeo();
+  renderPaletteBulk();
+  if (paletteOuverte()) renderPaletteRows();
 }
 
 function renderHeader() {
@@ -300,11 +298,26 @@ function renderHeader() {
     $('#updated').textContent = 'Mis à jour ' + relTime(t);
     $('#updated').title = fmtStamp.format(new Date(t));
   }
+}
+
+/** Pastille de portée : le seul sélecteur de dépôts, au centre de la barre
+ *  parce qu'il pilote les quatre écrans. */
+function renderScope() {
+  const vis = visibleSeries();
+  $('#scope-title').textContent = scopeLabel(false);
+  $('#scope-stars').textContent = vis.length
+    ? nf.format(vis.reduce((n, s) => n + s.repo.stars, 0)) + ' ★' : '';
+  // Cinq pastilles au plus : au-delà, elles ne se distinguent plus.
+  $('#scope-dots').innerHTML = vis.slice(0, 5)
+    .map((s) => `<i style="background:${s.color}"></i>`).join('');
+
+  const d = state.data;
   const orgs = (d?.orgs || []).length;
-  $('#foot').textContent = d
-    ? `${state.series.length} dépôt(s) étoilé(s) sur ${d.repos.length} · compte @${d.login}` +
-      (orgs ? ` + ${orgs} organisation(s)` : '') + ' · via gh · StarViz'
+  $('#scope-sentence').textContent = d
+    ? `${scopeLabel(true)} · ${state.series.length} dépôt(s) étoilé(s) sur ${d.repos.length}` +
+      ` · @${d.login}${orgs ? ` + ${orgs} organisation(s)` : ''}`
     : '';
+  $('#geo-sentence').textContent = $('#scope-sentence').textContent;
 }
 
 function renderKpis() {
@@ -431,8 +444,8 @@ function renderChart(animate) {
 
   const parts = [`<svg width="${w}" height="${h}">`];
   parts.push(`<defs><linearGradient id="fadeTotal" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="var(--accent)" stop-opacity=".18"/>
-    <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`);
+    <stop offset="0" stop-color="var(--acc)" stop-opacity=".18"/>
+    <stop offset="1" stop-color="var(--acc)" stop-opacity="0"/></linearGradient></defs>`);
 
   let yMax, yToPx, yTicks;
   const ctx = { M, pw, ph, x0, x1, xToPx, pxToX, mode: state.mode, series: [] };
@@ -455,8 +468,11 @@ function renderChart(animate) {
       const decades = Math.log10(yMax);
       yToPx = (v) => M.top + ph * (1 - Math.log10(Math.max(v, 1)) / decades);
     } else {
+      // Les reperes restent ceux d'avant — pas de palier ajoute, pas de
+      // hauteur perdue. Mais le domaine, lui, couvre la donnee : sinon la
+      // valeur la plus haute sort du cadre et rien ne peut la surmonter.
       yTicks = niceTicks(rawMax, 5);
-      yMax = yTicks[yTicks.length - 1] || 1;
+      yMax = Math.max(yTicks[yTicks.length - 1] || 1, rawMax);
       yToPx = (v) => M.top + ph * (1 - v / yMax);
     }
 
@@ -478,9 +494,9 @@ function renderChart(animate) {
         fill="url(#fadeTotal)"/>`);
       // Jamais animée : superposée aux séries, elle doit rester lisible tout
       // de suite, et ses pointillés survivent au tracé progressif.
-      parts.push(`<path class="serie total" d="${d}" stroke="var(--text)" stroke-opacity=".5"
+      parts.push(`<path class="serie total" d="${d}" stroke="var(--faint)" stroke-opacity=".5"
         stroke-dasharray="6 5"/>`);
-      ctx.series.push({ key: '__total__', name: 'Total', color: 'var(--text)', samples: totals });
+      ctx.series.push({ key: '__total__', name: 'Total', color: 'var(--faint)', samples: totals });
     }
     vis.forEach((s, i) => {
       parts.push(`<path class="serie${animate ? ' animate' : ''}" pathLength="1" d="${pathOf(samples[i])}"
@@ -492,8 +508,11 @@ function renderChart(animate) {
     const { buckets, unit } = buildBuckets(x0, x1);
     const counts = vis.map((s) => buckets.map((bk) => bucketCount(s, bk)));
     const totals = buckets.map((_, i) => counts.reduce((a, c) => a + c[i], 0));
-    yTicks = niceTicks(Math.max(1, ...totals), 5);
-    yMax = yTicks[yTicks.length - 1] || 1;
+    // Meme regle qu'en cumul : reperes inchanges, domaine qui contient la
+    // plus haute barre, pour qu'aucune ne deborde du cadre.
+    const pic = Math.max(1, ...totals);
+    yTicks = niceTicks(pic, 5);
+    yMax = Math.max(yTicks[yTicks.length - 1] || 1, pic);
     yToPx = (v) => M.top + ph * (1 - v / yMax);
 
     parts.push(gridAndAxes(M, pw, ph, x0, x1, xToPx, yToPx, yTicks, targetX));
@@ -574,8 +593,11 @@ function onHover(evt) {
       .map((s) => ({ ...s, v: s.samples[i] }))
       .filter((s) => s.v > 0 || s.key === '__total__')
       .sort((a, b) => (a.key === '__total__' ? 1 : b.key === '__total__' ? -1 : b.v - a.v));
+    // De 0 au bas du plot : le repere marque une position, pas une valeur.
+    // Le caler sur `M.top` l'aurait plafonne au repere le plus haut de
+    // l'echelle, alors qu'une barre peut le depasser.
     layer.innerHTML =
-      `<line class="crosshair" x1="${gx}" y1="${M.top}" x2="${gx}" y2="${M.top + ph}"/>` +
+      `<line class="crosshair" x1="${gx}" y1="0" x2="${gx}" y2="${M.top + ph}"/>` +
       rows.filter((s) => s.key !== '__total__')
         .map((s) => `<circle class="dot" cx="${gx}" cy="${chartCtx.yToPx(s.v).toFixed(1)}" r="3.5" fill="${s.color}"/>`)
         .join('');
@@ -589,15 +611,17 @@ function onHover(evt) {
     const i = Math.max(0, Math.min(buckets.length - 1, Math.floor((px - M.left) / bw)));
     const bk = buckets[i];
     const gx = chartCtx.xToPx(bk.a);
-    layer.innerHTML = `<rect x="${gx.toFixed(1)}" y="${M.top}" width="${bw.toFixed(1)}" height="${ph}"
-      fill="currentColor" opacity=".07"/>`;
+    // La bande seule : elle designe la periode survolee, sur toute la hauteur
+    // du graphe. Une ligne en plus, au milieu de la bande, ferait doublon.
+    layer.innerHTML =
+      `<rect x="${gx.toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${M.top + ph}" opacity=".13"/>`;
     const rows = chartCtx.series
       .map((s, si) => ({ ...s, v: chartCtx.counts[si][i] }))
       .filter((s) => s.v > 0)
       .sort((a, b) => b.v - a.v);
     // Sur une période vide, l'infobulle se contente de le dire.
     if (rows.length > 1) {
-      rows.push({ key: '__total__', name: 'Total', color: 'var(--text)', v: chartCtx.totals[i] });
+      rows.push({ key: '__total__', name: 'Total', color: 'var(--faint)', v: chartCtx.totals[i] });
     }
     const head = state.align === 'age'
       ? `Jours ${Math.round(bk.a)} – ${Math.round(bk.b)}`
@@ -613,12 +637,12 @@ function onHover(evt) {
 function showTooltip(evt, head, rows) {
   const tip = $('#tooltip');
   const body = rows.slice(0, 13).map((r) => `
-    <div class="row${r.key === '__total__' ? ' sum' : ''}">
-      <i class="swatch" style="background:${r.color}"></i>
-      <span class="name">${esc(r.name)}</span>
-      <span class="val">${nf.format(Math.round(r.v))}</span>
+    <div class="row">
+      <i style="background:${r.color}"></i>
+      <span class="n">${esc(r.name)}</span>
+      <span class="v">${nf.format(Math.round(r.v))}</span>
     </div>`).join('');
-  tip.innerHTML = `<div class="t-date">${esc(head)}</div>${
+  tip.innerHTML = `<div class="when">${esc(head)}</div>${
     body || '<div class="row" style="color:var(--muted)">Aucune étoile</div>'}`;
   tip.classList.remove('hidden');
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -636,7 +660,7 @@ function clearHover() {
 
 /* ------------------------------------------------------------- légende */
 
-function renderPresets() {
+function renderPaletteBulk() {
   const owners = [...new Set(state.series.map((s) => s.repo.owner))];
   const selected = new Set(visibleSeries().map((s) => s.key));
   const matches = (keys) => keys.length === selected.size && keys.every((k) => selected.has(k));
@@ -649,19 +673,18 @@ function renderPresets() {
     })) : []),
     { value: 'none', label: 'Aucun', keys: [] },
   ];
-  $('#select-actions').innerHTML = shortcuts.map((sc) =>
-    `<button class="mini" data-select="${esc(sc.value)}" aria-pressed="${matches(sc.keys)}">${
+  $('#palette-bulk').innerHTML = shortcuts.map((sc) =>
+    `<button data-select="${esc(sc.value)}" aria-pressed="${matches(sc.keys)}">${
       esc(sc.label)}</button>`).join('');
 }
 
 function renderLegend() {
   const vis = visibleSeries();
-  const keys = vis.map((s) => `<span class="key"><i class="swatch" style="background:${s.color}"></i>${
-    esc(s.name)}</span>`);
+  const keys = vis.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`);
   if (state.mode === 'cumul' && state.showTotal && vis.length > 1) {
-    keys.unshift('<span class="key"><i class="swatch dashed"></i>Total</span>');
+    keys.unshift('<span><i class="dash"></i>Total</span>');
   }
-  $('#legend').innerHTML = keys.join('') || '<span class="key">Aucun dépôt sélectionné.</span>';
+  $('#legend').innerHTML = keys.join('') || '<span>Aucun dépôt sélectionné.</span>';
 }
 
 function toggleSeries(key, isolate) {
@@ -683,60 +706,6 @@ function setAllVisible(visible) {
   selectSeries(visible ? state.series.map((s) => s.key) : []);
 }
 
-/* ------------------------------------------------------- tableau dépôts */
-
-function sparkline(times, w = 62, h = 20) {
-  const now = Date.now(), from = now - 90 * DAY;
-  const n = 24;
-  const pts = [];
-  for (let i = 0; i < n; i++) pts.push(countUpTo(times, from + ((now - from) * i) / (n - 1)));
-  const lo = pts[0], hi = pts[n - 1];
-  const span = Math.max(1, hi - lo);
-  const d = pts.map((v, i) =>
-    `${i ? 'L' : 'M'}${((i / (n - 1)) * (w - 2) + 1).toFixed(1)} ${(h - 2 - ((v - lo) / span) * (h - 5)).toFixed(1)}`).join('');
-  return { d, flat: hi === lo };
-}
-
-function renderTable() {
-  const now = Date.now();
-  $('#repos-sub').textContent = state.hidden.size ? scopeLabel(false) + ' sélectionné(s)' : '';
-  const rows = state.series.map((s) => ({
-    s,
-    stars: s.repo.stars,
-    d7: countBetween(s.times, now - 7 * DAY, now),
-    d30: countBetween(s.times, now - 30 * DAY, now),
-  }));
-  const dir = state.sortDir;
-  rows.sort((a, b) => state.sort === 'name'
-    ? -dir * a.s.name.localeCompare(b.s.name)
-    : dir * (a[state.sort] - b[state.sort]) || b.stars - a.stars);
-
-  $('#repos tbody').innerHTML = rows.map(({ s, stars, d7, d30 }) => {
-    const sp = sparkline(s.times);
-    const on = !state.hidden.has(s.key);
-    return `<tr data-key="${esc(s.key)}" class="${on ? '' : 'off'}"
-      title="${esc(s.repo.full_name)} — clic : n'afficher que ce dépôt">
-      <td><div class="repo-name"><button class="repo-check${on ? ' on' : ''}" style="--c:${s.color}"
-          aria-pressed="${on}" title="Ajouter ou retirer ce dépôt de la sélection"></button>
-        <span>${esc(s.name)}</span>
-        ${s.repo.is_org ? `<i class="tag">${esc(s.repo.owner)}</i>` : ''}
-        ${s.repo.private ? '<i class="tag">privé</i>' : ''}${s.repo.fork ? '<i class="tag">fork</i>' : ''}</div></td>
-      <td>${nf.format(stars)}</td>
-      <td class="delta${d7 ? ' pos' : ''}">${d7 ? '+' + d7 : '·'}</td>
-      <td class="delta${d30 ? ' pos' : ''}">${d30 ? '+' + d30 : '·'}</td>
-      <td><svg class="spark" viewBox="0 0 62 20"><path d="${sp.d}" fill="none"
-        stroke="${sp.flat ? 'var(--muted)' : s.color}" stroke-width="1.6" stroke-linejoin="round"
-        stroke-linecap="round" opacity="${sp.flat ? '.45' : '1'}"/></svg></td>
-    </tr>`;
-  }).join('');
-
-  document.querySelectorAll('#repos th[data-sort]').forEach((th) => {
-    th.classList.toggle('active', th.dataset.sort === state.sort);
-  });
-}
-
-/* --------------------------------------------------- stargazers récents */
-
 function renderRecent() {
   $('#recent-sub').textContent = scopeLabel(false);
   const locations = state.data?.locations || {};
@@ -746,16 +715,16 @@ function renderRecent() {
   });
   events.sort((a, b) => b.t - a.t);
   $('#recent').innerHTML = events.slice(0, 40).map((e) => `
-    <li>
+    <div class="who">
       <img src="https://github.com/${encodeURIComponent(e.login)}.png?size=60" alt="" loading="lazy" referrerpolicy="no-referrer">
-      <div class="col">
-        <div class="who"><a href="https://github.com/${encodeURIComponent(e.login)}" target="_blank" rel="noreferrer">${esc(e.login)}</a></div>
-        <div class="meta"><a href="${esc(e.repo.url)}" target="_blank" rel="noreferrer">${
+      <span class="grow trunc">
+        <span class="n"><a href="https://github.com/${encodeURIComponent(e.login)}" target="_blank" rel="noreferrer">${esc(e.login)}</a></span>
+        <span class="m" style="display:block"><a href="${esc(e.repo.url)}" target="_blank" rel="noreferrer">${
           esc(e.repo.is_org ? e.repo.full_name : e.repo.name)}</a>${
-          locations[e.login] ? ' · ' + esc(locations[e.login]) : ''}</div>
-      </div>
-      <time title="${fmtStamp.format(new Date(e.t))}">${relTime(e.t)}</time>
-    </li>`).join('') || '<li class="empty-state">Aucun dépôt sélectionné.</li>';
+          locations[e.login] ? ' · ' + esc(locations[e.login]) : ''}</span>
+      </span>
+      <span class="when" title="${fmtStamp.format(new Date(e.t))}">${relTime(e.t)}</span>
+    </div>`).join('') || '<div class="empty"><p>Aucun dépôt sélectionné.</p></div>';
 }
 
 /* ---------------------------------------------------------- géographie */
@@ -797,23 +766,38 @@ function renderGeo() {
   $('#geo-stack').innerHTML = continents.map(([code, n]) =>
     `<i style="width:${(100 * n / located).toFixed(2)}%;background:${CONTINENT_COLORS[code] || CONTINENT_COLORS.XX}"
         title="${esc(GEO.continents[code])} : ${nf.format(n)}"></i>`).join('');
-  $('#geo-continents').innerHTML = continents.map(([code, n]) => `
-    <li><i class="swatch" style="background:${CONTINENT_COLORS[code] || CONTINENT_COLORS.XX}"></i>
-      <span class="cont">${esc(GEO.continents[code] || 'Autre')}</span>
-      <span class="n">${nf.format(n)}</span><span class="pct">${pct(n)}</span></li>`).join('');
 
-  const top = [...byCountry].sort((a, b) => b[1] - a[1]).slice(0, 16);
+  const maxCont = continents[0][1];
+  const barresContinents = continents.map(([code, n]) => `
+    <div class="b"><span class="code"></span>
+      <span class="n">${esc(GEO.continents[code] || 'Autre')}</span>
+      <span class="t"><i style="width:${(100 * n / maxCont).toFixed(1)}%;background:${
+        CONTINENT_COLORS[code] || CONTINENT_COLORS.XX}"></i></span>
+      <span class="v">${nf.format(n)}</span></div>`).join('');
+  $('#geo-continents').innerHTML = barresContinents;
+  $('#geo-continents-full').innerHTML = barresContinents;
+
+  const top = [...byCountry].sort((a, b) => b[1] - a[1]).slice(0, 20);
   const max = top[0][1];
   $('#geo-countries').innerHTML = top.map(([code, n]) => {
     const info = GEO.info(code);
-    return `<li title="${esc(info.name)} — ${nf.format(n)} stargazers (${pct(n)})">
-      <span class="flag">${info.flag}</span>
-      <span class="cname">${esc(info.name)}</span>
-      <span class="track"><i style="width:${(100 * n / max).toFixed(1)}%;background:${
+    return `<div class="b" title="${esc(info.name)} — ${nf.format(n)} stargazers (${pct(n)})">
+      <span class="code">${info.flag}</span>
+      <span class="n">${esc(info.name)}</span>
+      <span class="t"><i style="width:${(100 * n / max).toFixed(1)}%;background:${
         CONTINENT_COLORS[info.continent] || CONTINENT_COLORS.XX}"></i></span>
-      <span class="n">${nf.format(n)}</span></li>`;
+      <span class="v">${nf.format(n)}</span></div>`;
   }).join('');
+
+  // La carte n'est dessinee que lorsque son ecran est visible : d3 mesure le
+  // conteneur, et un conteneur masque n'a pas de dimensions.
+  derniereGeo = { parPays: byCountry, total: located };
+  if (state.view === 'geo') StarvizMap.render(byCountry, located);
 }
+
+/** Dernier resultat geographique, pour dessiner la carte a l'arrivee sur son
+ *  ecran sans avoir a tout recalculer. */
+let derniereGeo = null;
 
 /* ------------------------------------------------------------ connexion */
 
@@ -945,23 +929,44 @@ const hideError = () => $('#error').classList.add('hidden');
 
 /* ------------------------------------------------------------ contrôles */
 
+const SOLEIL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="5.6" y1="5.6" x2="7.3" y2="7.3"/><line x1="16.7" y1="16.7" x2="18.4" y2="18.4"/><line x1="18.4" y1="5.6" x2="16.7" y2="7.3"/><line x1="7.3" y1="16.7" x2="5.6" y2="18.4"/></svg>';
+const LUNE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>';
+
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem('starviz.theme', theme);
+  const sombre = theme === 'dark';
+  $('#theme-icon').innerHTML = sombre ? SOLEIL : LUNE;
+  $('#theme-label').textContent = sombre ? 'Clair' : 'Sombre';
+  $('#theme').title = sombre ? 'Passer au thème clair' : 'Passer au thème sombre';
+  syncSeg($('#seg-theme'), 'theme');
   if (state.data) { buildSeries(); renderAll(false); }
+  // Les couleurs de la carte viennent des jetons CSS : elle doit être redessinée.
+  if (window.StarvizMap) StarvizMap.retheme();
 }
 
 /** Le pas ne concerne que la cadence, l'échelle logarithmique que le cumul. */
 function syncModeUI() {
   $('#seg-bucket').classList.toggle('hidden', state.mode !== 'rate');
   $('#seg-scale').classList.toggle('hidden', state.mode !== 'cumul');
-  $('#seg-total').classList.toggle('hidden', state.mode !== 'cumul');
-  $('#seg-total button').setAttribute('aria-pressed', String(state.showTotal));
+  // « Courbe total » est un bouton bascule, pas un segment : il porte son
+  // propre etat plutot que d'en contenir un.
+  const total = $('#seg-total');
+  total.classList.toggle('hidden', state.mode !== 'cumul');
+  total.classList.toggle('accent', state.showTotal);
+  total.setAttribute('aria-pressed', String(state.showTotal));
 }
 
 function syncSeg(seg, key) {
-  seg.querySelectorAll('button').forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.value === String(state[key]))));
+  if (!seg) return;
+  const courant = key === 'theme'
+    ? (localStorage.getItem('starviz.theme') || 'auto')
+    : String(state[key]);
+  seg.querySelectorAll('button').forEach((b) => {
+    const actif = b.dataset.value === courant;
+    b.setAttribute('aria-pressed', String(actif));
+    b.classList.toggle('on', actif);
+  });
 }
 
 function bindSeg(id, key, onChange) {
@@ -979,17 +984,21 @@ function bindSeg(id, key, onChange) {
 
 function restore() {
   const saved = localStorage.getItem('starviz.theme');
-  document.documentElement.dataset.theme =
-    saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  ['range', 'mode', 'bucket', 'align', 'scale'].forEach((k) => {
+  // Le thème clair est le défaut du design ; « auto » suit le système.
+  document.documentElement.dataset.theme = saved && saved !== 'auto'
+    ? saved
+    : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  ['range', 'mode', 'bucket', 'align', 'scale', 'view'].forEach((k) => {
     const v = localStorage.getItem('starviz.' + k);
     if (v) state[k] = v;
   });
   state.showTotal = localStorage.getItem('starviz.showTotal') !== 'false';
+  state.railOpen = localStorage.getItem('starviz.rail') !== 'closed';
+  if (TAURI) document.body.classList.add('tauri');
 }
 
 function bindUI() {
-  $('#select-actions').addEventListener('click', (e) => {
+  $('#palette-bulk').addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
     const value = btn.dataset.select;
@@ -1035,31 +1044,396 @@ function bindUI() {
   $('#refresh').addEventListener('click', (e) => refresh(e.shiftKey));
   $('#theme').addEventListener('click', () =>
     setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
-  $('#quit').addEventListener('click', async () => {
-    await api('/api/quit', { method: 'POST' }).catch(() => {});
-    document.body.innerHTML = '<p class="empty-state">StarViz est arrêté. Vous pouvez fermer cet onglet.</p>';
-    stopPolling();
-  });
-
-  // Deux gestes, un seul sélecteur : la pastille ajoute ou retire un dépôt,
-  // le reste de la ligne n'affiche que celui-ci (et rétablit tout au second clic).
-  $('#repos tbody').addEventListener('click', (e) => {
-    if (e.target.closest('a')) return;
-    const tr = e.target.closest('tr');
-    if (tr) toggleSeries(tr.dataset.key, !e.target.closest('.repo-check'));
-  });
-  document.querySelectorAll('#repos th[data-sort]').forEach((th) => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      state.sortDir = state.sort === key ? -state.sortDir : -1;
-      state.sort = key;
-      renderTable();
-    });
-  });
+  bindCoquille();
 
   new ResizeObserver(() => syncChartSize()).observe($('#chart'));
   addEventListener('resize', () => syncChartSize());
+}
+
+
+/* ------------------------------------------------------------ coquille */
+
+const ECRANS = ['overview', 'geo', 'trending', 'settings'];
+
+/** Change d'écran. Chaque écran se peuple à l'arrivée plutôt qu'en continu :
+ *  Trending et Réglages interrogent le backend, il n'y a pas de raison de le
+ *  faire pendant qu'on regarde le graphe. */
+function showView(v) {
+  if (!ECRANS.includes(v)) v = 'overview';
+  state.view = v;
+  localStorage.setItem('starviz.view', v);
+  ECRANS.forEach((e) => {
+    $('#screen-' + e).classList.toggle('hidden', e !== v);
+    $('#nav-' + e).classList.toggle('on', e === v);
+  });
+  if (v === 'overview') syncChartSize(true);
+  if (v === 'geo' && derniereGeo) StarvizMap.render(derniereGeo.parPays, derniereGeo.total);
+  if (v === 'trending') renderTrending();
+  if (v === 'settings') renderSettings();
+}
+
+function setRail(ouvert) {
+  state.railOpen = ouvert;
+  localStorage.setItem('starviz.rail', ouvert ? 'open' : 'closed');
+  $('#rail').classList.toggle('collapsed', !ouvert);
+  // Le graphe occupe la place laissée par le rail : il doit être remesuré.
+  setTimeout(() => syncChartSize(true), 160);
+}
+
+/* -------------------------------------------------------------- palette */
+
+let paletteCurseur = 0;
+const paletteOuverte = () => !$('#palette-veil').classList.contains('hidden');
+
+function lignesPalette() {
+  const q = $('#palette-query').value.trim().toLowerCase();
+  return state.series.filter((s) =>
+    !q || s.name.toLowerCase().includes(q) || s.repo.full_name.toLowerCase().includes(q));
+}
+
+function renderPaletteRows() {
+  const lignes = lignesPalette();
+  if (paletteCurseur >= lignes.length) paletteCurseur = Math.max(0, lignes.length - 1);
+  $('#palette-rows').innerHTML = lignes.length ? lignes.map((s, i) => `
+    <div class="prow${state.hidden.has(s.key) ? '' : ' sel'}${i === paletteCurseur ? ' cursor' : ''}" data-key="${esc(s.key)}">
+      <span class="check"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="var(--on-acc)" stroke-width="2.2" stroke-linecap="round"><path d="M2.5 6.3 4.8 8.6 9.5 3.6"/></svg></span>
+      <span class="n">${esc(s.name)}</span>
+      <span class="owner trunc">${esc(s.repo.owner)}</span>
+      <span class="stars">${nf.format(s.repo.stars)}</span>
+      <span class="solo" data-solo="1">isoler</span>
+    </div>`).join('')
+    : `<div style="padding:38px 20px;text-align:center;color:var(--faint);font-size:13px">Aucun dépôt ne correspond à « ${esc($('#palette-query').value)} ».</div>`;
+
+  const vis = visibleSeries().length;
+  $('#palette-count').textContent = `${vis} / ${state.series.length} sélectionné${vis > 1 ? 's' : ''}`;
+}
+
+function openPalette() {
+  $('#palette-veil').classList.remove('hidden');
+  $('#palette-query').value = '';
+  paletteCurseur = 0;
+  renderPaletteBulk();
+  renderPaletteRows();
+  $('#palette-query').focus();
+}
+
+const closePalette = () => $('#palette-veil').classList.add('hidden');
+
+/* ------------------------------------------------------------ trending */
+
+function renderTrending() {
+  const hote = $('#trending-body');
+  if (!TAURI) {
+    $('#trending-sentence').textContent = '';
+    hote.innerHTML = `<div class="card"><div class="empty">
+      <div class="title">Disponible dans l'application</div>
+      <p>Le journal des classements est lu par le backend Rust. Cet écran reste vide dans le navigateur.</p>
+    </div></div>`;
+    return;
+  }
+  TAURI.core.invoke('trending').then((t) => {
+    if (!t.disponible) {
+      $('#trending-sentence').textContent = 'Aucun relevé sur cette machine';
+      $('#nav-trending-badge').classList.add('hidden');
+      hote.innerHTML = `<div class="card"><div class="empty">
+        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 16 9 10 13 14 21 6"/><polyline points="21 11 21 6 16 6"/></svg></div>
+        <div class="title">Aucun relevé Trending</div>
+        <p>Le relevé est assuré par <span class="mono">starviz.py --trending</span>, sous minuteur systemd : il demande un navigateur sans interface et doit tourner même quand l'application est fermée.</p>
+        <p class="mono" style="font-size:12px">${esc(t.chemin)}</p>
+      </div></div>`;
+      return;
+    }
+
+    const rangs = t.lignes.map((l) => l.rank).filter((r) => r !== null && r !== undefined);
+    const meilleur = rangs.length ? Math.min(...rangs) : null;
+    $('#nav-trending-badge').classList.toggle('hidden', meilleur === null);
+    if (meilleur !== null) $('#nav-trending-badge').textContent = '#' + meilleur;
+    // Dire combien de classements ont ete consultes evite la question « et le
+    // journalier ? » : il a bien ete regarde, la place n'y etait simplement pas.
+    $('#trending-sentence').innerHTML = `${t.nb_releves} relevé(s) · dernier ${
+      esc(t.dernier_releve || '—')} · ${t.consultes} classement(s) consulté(s) au dernier relevé, ${
+      t.occupes} occupé(s)`;
+
+    const fenetres = { daily: 'journalier', weekly: 'hebdomadaire', monthly: 'mensuel' };
+    const lignes = t.lignes.map((l) => {
+      // Une case quittee garde son rang et sa pleine lisibilite : une preuve
+      // reconstituee vaut une mesure, seule la methode d'acquisition differe.
+      const d = l.delta;
+      const cls = l.sortie || d === null || d === 0 ? 'flat' : (d < 0 ? 'up' : 'down');
+      const txt = l.sortie ? 'sorti' : (d === null ? 'nouveau' : (d === 0 ? '—' : (d < 0 ? '▲ ' + -d : '▼ ' + d)));
+      return `<tr>
+        <td><span style="display:flex;align-items:center;gap:9px">
+          <span class="kind">${l.scope === 'developer' ? 'dév' : 'dépôt'}</span>
+          <span>${esc(fenetres[l.window] || l.window)}</span></span></td>
+        <td style="color:var(--muted)">${esc(l.lang || 'toutes langues')}</td>
+        <td class="num"><span class="rank${l.rank <= 3 ? ' top' : ''}">#${l.rank}</span>${
+          l.total ? `<span style="color:var(--faint)"> / ${l.total}</span>` : ''}</td>
+        <td class="num" style="color:var(--muted)">#${l.meilleur}${
+          l.preuve ? ` <span class="preuve" data-voir="${esc(l.preuve)}">voir</span>` : ''}</td>
+        <td class="num"><span class="delta ${cls}">${txt}</span></td>
+      </tr>`;
+    }).join('');
+
+    hote.innerHTML = `
+      <section class="card">
+        <div style="overflow-x:auto"><table class="tbl">
+          <thead><tr><th>Classement</th><th>Langage</th><th class="num">Rang</th><th class="num">Meilleur</th><th class="num">Delta</th></tr></thead>
+          <tbody>${lignes || '<tr><td colspan="5" style="color:var(--faint)">Absent de tous les classements au dernier relevé.</td></tr>'}</tbody>
+        </table></div>
+      </section>
+
+      <section class="card" style="margin-top:20px">
+        <header><h2>Captures de rang</h2><span class="grow"></span>
+          <span class="note mono">${esc(t.captures.length ? t.captures.length + ' fichier(s)' : 'aucune')}</span></header>
+        ${t.captures.length ? `<div class="shots">${t.captures.map((c) => `
+          <div class="shot">
+            <img class="ph" data-capture="${esc(c.fichier)}" alt="${esc(titreCapture(c.fichier))}" loading="lazy">
+            <div class="meta"><div class="t">${esc(titreCapture(c.fichier))}</div>
+              <div class="f">${(c.taille / 1024).toFixed(0)} Kio · ${esc(c.fichier)}</div></div>
+          </div>`).join('')}</div>`
+        : `<div class="empty"><p>Aucune capture. Le relevé en produit une à chaque changement de rang, sauf avec <span class="mono">--no-shots</span>.</p></div>`}
+      </section>
+
+      <section class="card" style="margin-top:20px">
+        <header><h2>Journal des évènements</h2></header>
+        ${t.evenements.length ? `<div class="journal">${t.evenements.map((e) => `
+          <div class="ev">
+            <span class="d">${esc(e.ts.replace('T', ' ').replace('Z', ''))}</span>
+            <i style="background:${e.genre === 'progression' ? 'var(--pos)' : e.genre === 'recul' ? 'var(--neg)' : 'var(--faint)'}"></i>
+            <span class="t">${esc(e.texte)}</span>
+          </div>`).join('')}</div>`
+        : `<div class="empty"><p>Rien n'a bougé entre les relevés enregistrés.</p></div>`}
+      </section>`;
+    // Les images sont chargees apres coup, une par une : les inclure dans le
+    // HTML aurait fait entrer plusieurs mega-octets de base64 d'un seul bloc.
+    hote.querySelectorAll('img[data-capture]').forEach((img) => {
+      TAURI.core.invoke('capture', { fichier: img.dataset.capture })
+        .then((uri) => { img.src = uri; })
+        .catch(() => { img.classList.add('absente'); });
+      img.addEventListener('click', () => {
+        if (img.src) ouvrirVisio(img.src, titreCapture(img.dataset.capture));
+      });
+    });
+    // Depuis le tableau, la preuve se charge au clic : inutile de la garder en
+    // memoire pour une image qu'on ne regardera peut-etre jamais.
+    hote.querySelectorAll('[data-voir]').forEach((el) => {
+      el.addEventListener('click', () => {
+        TAURI.core.invoke('capture', { fichier: el.dataset.voir })
+          .then((uri) => ouvrirVisio(uri, titreCapture(el.dataset.voir)))
+          .catch((e) => showError(String(e)));
+      });
+    });
+  }).catch((e) => { hote.innerHTML = `<div class="error"><b>Trending</b>${esc(String(e))}</div>`; });
+}
+
+/** Affiche une capture en grand. */
+function ouvrirVisio(src, legende) {
+  $('#visio-img').src = src;
+  $('#visio-cap').textContent = legende;
+  $('#visio').classList.remove('hidden');
+}
+
+const fermerVisio = () => {
+  $('#visio').classList.add('hidden');
+  // On libere le data URI : une capture pese quelques centaines de kilooctets.
+  $('#visio-img').removeAttribute('src');
+};
+
+const visioOuverte = () => !$('#visio').classList.contains('hidden');
+
+/** Nom de fichier d'une capture -> intitule lisible.
+ *  Le releve les nomme `<horodatage>_<portee>_<fenetre>_<langage>_rang<N>.png`. */
+function titreCapture(fichier) {
+  const m = fichier.match(/^(\d{8})T\d{6}Z?_(\w+?)_(\w+?)_(.+?)_rang(\d+)/);
+  if (!m) return fichier.replace(/\.png$/, '');
+  const [, jour, portee, fenetre, langue, rang] = m;
+  const fen = { daily: 'journalier', weekly: 'hebdomadaire', monthly: 'mensuel' }[fenetre] || fenetre;
+  const date = fmtDay.format(new Date(+jour.slice(0, 4), +jour.slice(4, 6) - 1, +jour.slice(6, 8)));
+  return `${portee === 'developer' ? 'dév' : 'dépôt'} ${fen}${
+    langue === 'all' ? '' : '/' + langue} · #${rang} · ${date}`;
+}
+
+/* ------------------------------------------------------------ réglages */
+
+const RACCOURCIS = [
+  ['Ctrl K', 'Sélection des dépôts'],
+  ['1 – 4', "Changer d'écran"],
+  ['Ctrl B', 'Replier le rail'],
+  ['r', 'Actualiser'],
+  ['Maj R', 'Actualiser sans le cache'],
+  ['Échap', 'Tout réafficher'],
+];
+
+function renderSettings() {
+  const hote = $('#settings-body');
+  if (!TAURI) {
+    hote.innerHTML = `<div class="card"><div class="empty">
+      <div class="title">Disponible dans l'application</div>
+      <p>Ces réglages pilotent le collecteur Rust ; ils n'ont pas d'effet dans le navigateur.</p>
+    </div></div>`;
+    return;
+  }
+  Promise.all([TAURI.core.invoke('reglages'), TAURI.core.invoke('infos')]).then(([r, i]) => {
+    const mo = (o) => (o / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+    const themeCourant = localStorage.getItem('starviz.theme') || 'auto';
+    hote.innerHTML = `
+      <section class="card">
+        <header><h2>Données</h2></header>
+        <div class="rows">
+          <div class="row">
+            <span class="grow trunc"><span class="t">Historique</span>
+              <span class="s mono">${esc(i.chemin_donnees)} · ${mo(i.taille_donnees)}</span></span>
+            <button class="btn small" id="set-open">Ouvrir le dossier</button>
+          </div>
+          <div class="row">
+            <span class="grow"><span class="t">Collecte parallèle</span>
+              <span class="s">Dépôts interrogés simultanément — au-delà, GitHub applique ses limites secondaires</span></span>
+            <span class="seg" id="seg-conc">${[2, 4, 6, 8].map((n) =>
+              `<button data-n="${n}" class="${n === r.concurrence ? 'on' : ''}">${n}</button>`).join('')}</span>
+          </div>
+          <div class="row">
+            <span class="grow"><span class="t">Réessai sur HTTP 5xx</span>
+              <span class="s">Trois tentatives avant d'abandonner un dépôt. Un seul 504 suffisait à le faire disparaître du graphe.</span></span>
+            <button class="switch ${r.tentatives > 1 ? 'on' : ''}" id="set-retry"><i></i></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <header><h2>Trending</h2><span class="grow"></span>
+          <span class="note">piloté par ${esc(i.trending_pilote_par)}</span></header>
+        <div class="rows">
+          <div class="row">
+            <span class="grow trunc"><span class="t">Journal des relevés</span>
+              <span class="s mono">${esc(i.chemin_donnees.replace(/data\.json$/, 'trending.jsonl'))}</span></span>
+            <span class="state ${i.trending_present ? 'ok' : 'off'}"><i></i>${i.trending_present ? 'présent' : 'absent'}</span>
+          </div>
+          <div class="row">
+            <span class="grow trunc"><span class="t">Captures de rang</span>
+              <span class="s mono">${esc(i.chemin_captures)}</span></span>
+            <span class="state ${i.nb_captures ? 'ok' : 'off'}"><i></i>${i.nb_captures || 'aucune'}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <header><h2>Apparence</h2></header>
+        <div class="row">
+          <span class="grow"><span class="t">Thème</span>
+            <span class="s">Les deux thèmes sont spécifiés dans le design system</span></span>
+          <span class="seg" id="seg-theme">
+            <button data-value="light" class="${themeCourant === 'light' ? 'on' : ''}">Clair</button>
+            <button data-value="dark" class="${themeCourant === 'dark' ? 'on' : ''}">Sombre</button>
+            <button data-value="auto" class="${themeCourant === 'auto' ? 'on' : ''}">Système</button>
+          </span>
+        </div>
+      </section>
+
+      <section class="card">
+        <header><h2>Raccourcis</h2></header>
+        <div class="keys">${RACCOURCIS.map(([k, l]) =>
+          `<div><kbd>${esc(k)}</kbd><span style="color:var(--muted)">${esc(l)}</span></div>`).join('')}</div>
+      </section>
+
+      <p style="color:var(--faint);font-size:12px;margin:0">
+        StarViz ${esc(i.version)} · ${esc(i.plateforme)} · réglages dans
+        <span class="mono">${esc(i.chemin_config)}</span></p>`;
+
+    const ecrire = (patch) => TAURI.core.invoke('set_reglages', { valeurs: { ...r, ...patch } })
+      .then(() => renderSettings())
+      .catch((e) => showError(String(e)));
+
+    $('#set-open').addEventListener('click', () =>
+      TAURI.core.invoke('ouvrir_dossier_donnees').catch((e) => showError(String(e))));
+    $('#seg-conc').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (b) ecrire({ concurrence: +b.dataset.n });
+    });
+    $('#set-retry').addEventListener('click', () =>
+      ecrire({ tentatives: r.tentatives > 1 ? 1 : 3 }));
+    $('#seg-theme').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const v = b.dataset.value;
+      if (v === 'auto') {
+        setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        localStorage.setItem('starviz.theme', 'auto');
+      } else {
+        setTheme(v);
+      }
+      renderSettings();
+    });
+  }).catch((e) => { hote.innerHTML = `<div class="error"><b>Réglages</b>${esc(String(e))}</div>`; });
+}
+
+/* --------------------------------------------------- liaisons coquille */
+
+function bindCoquille() {
+  document.querySelectorAll('.navbtn').forEach((b) =>
+    b.addEventListener('click', () => showView(b.dataset.view)));
+  $('#collapse').addEventListener('click', () => setRail(!state.railOpen));
+
+  // Boutons système : la fenêtre n'a pas de cadre, c'est la page qui les porte.
+  if (TAURI) {
+    const fenetre = TAURI.window.getCurrentWindow();
+    $('#win-min').addEventListener('click', () => fenetre.minimize());
+    $('#win-max').addEventListener('click', () => fenetre.toggleMaximize());
+    // Fermer replie dans la zone de notification : le backend intercepte
+    // l'évènement, et l'application continue de vivre dans le tray.
+    $('#win-close').addEventListener('click', () => fenetre.close());
+
+    // La fenetre n'a pas de cadre : c'est la barre de titre qui la deplace.
+    // L'attribut `data-tauri-drag-region` ne couvre que l'element qui le porte,
+    // pas ses enfants ; on saisit donc explicitement, en epargnant les
+    // controles pour qu'un clic reste un clic.
+    const inerte = (e) => !e.target.closest('button, a, input, .scope');
+    const barre = document.querySelector('.topbar');
+    barre.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && inerte(e)) fenetre.startDragging();
+    });
+    barre.addEventListener('dblclick', (e) => {
+      if (inerte(e)) fenetre.toggleMaximize();
+    });
+  }
+
+  $('#scope').addEventListener('click', openPalette);
+  $('#empty-pick').addEventListener('click', openPalette);
+  $('#empty-all').addEventListener('click', () => setAllVisible(true));
+  $('#palette-veil').addEventListener('click', (e) => {
+    if (e.target.id === 'palette-veil') closePalette();
+  });
+  $('#palette-query').addEventListener('input', () => { paletteCurseur = 0; renderPaletteRows(); });
+  $('#palette-rows').addEventListener('click', (e) => {
+    const ligne = e.target.closest('.prow');
+    if (!ligne) return;
+    // Deux gestes pour isoler : le bouton « isoler », et Alt+clic — le
+    // pendant du Alt+Entree du clavier.
+    toggleSeries(ligne.dataset.key, !!e.target.closest('[data-solo]') || e.altKey);
+    renderPaletteRows();
+  });
+
+  $('#visio').addEventListener('click', fermerVisio);
+
   addEventListener('keydown', (e) => {
+    if (visioOuverte()) {
+      if (e.key === 'Escape') { fermerVisio(); e.preventDefault(); }
+      return;
+    }
+    if (paletteOuverte()) {
+      const lignes = lignesPalette();
+      if (e.key === 'Escape') { closePalette(); return; }
+      if (e.key === 'ArrowDown') { paletteCurseur = Math.min(lignes.length - 1, paletteCurseur + 1); renderPaletteRows(); e.preventDefault(); return; }
+      if (e.key === 'ArrowUp') { paletteCurseur = Math.max(0, paletteCurseur - 1); renderPaletteRows(); e.preventDefault(); return; }
+      if (e.key === 'Enter' && lignes[paletteCurseur]) {
+        toggleSeries(lignes[paletteCurseur].key, e.altKey);
+        renderPaletteRows(); e.preventDefault(); return;
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { openPalette(); e.preventDefault(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { setRail(!state.railOpen); e.preventDefault(); return; }
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.metaKey) showView(ECRANS[+e.key - 1]);
     if (e.key === 'r' && !e.ctrlKey && !e.metaKey) refresh(e.shiftKey);
     if (e.key === 'Escape' && state.hidden.size) setAllVisible(true);
   });
@@ -1071,6 +1445,9 @@ const stopPolling = () => clearInterval(pollTimer);
 (async function main() {
   restore();
   bindUI();
+  setTheme(document.documentElement.dataset.theme);
+  setRail(state.railOpen);
+  showView(state.view);
   syncModeUI();
   await loadData();
   await poll();

@@ -1,0 +1,9 @@
+/* Correspondance ISO 3166-1 alpha-2 -> code numerique.
+ *
+ * geo-data.js resout les localisations en alpha-2 ; la topologie world-atlas
+ * identifie ses pays par code numerique. Cette table fait le pont.
+ *
+ * Genere depuis lukes/ISO-3166-Countries-with-Regional-Codes, restreint aux
+ * pays effectivement presents dans vendor/countries-110m.json.
+ */
+(typeof window !== 'undefined' ? window : globalThis).ISO_NUMERIC = {"AE":784,"AF":4,"AL":8,"AM":51,"AO":24,"AQ":10,"AR":32,"AT":40,"AU":36,"AZ":31,"BA":70,"BD":50,"BE":56,"BF":854,"BG":100,"BI":108,"BJ":204,"BN":96,"BO":68,"BR":76,"BS":44,"BT":64,"BW":72,"BY":112,"BZ":84,"CA":124,"CD":180,"CF":140,"CG":178,"CH":756,"CI":384,"CL":152,"CM":120,"CN":156,"CO":170,"CR":188,"CU":192,"CY":196,"CZ":203,"DE":276,"DJ":262,"DK":208,"DO":214,"DZ":12,"EC":218,"EE":233,"EG":818,"EH":732,"ER":232,"ES":724,"ET":231,"FI":246,"FJ":242,"FK":238,"FR":250,"GA":266,"GB":826,"GE":268,"GH":288,"GL":304,"GM":270,"GN":324,"GQ":226,"GR":300,"GT":320,"GW":624,"GY":328,"HN":340,"HR":191,"HT":332,"HU":348,"ID":360,"IE":372,"IL":376,"IN":356,"IQ":368,"IR":364,"IS":352,"IT":380,"JM":388,"JO":400,"JP":392,"KE":404,"KG":417,"KH":116,"KP":408,"KR":410,"KW":414,"KZ":398,"LA":418,"LB":422,"LK":144,"LR":430,"LS":426,"LT":440,"LU":442,"LV":428,"LY":434,"MA":504,"MD":498,"ME":499,"MG":450,"MK":807,"ML":466,"MM":104,"MN":496,"MR":478,"MW":454,"MX":484,"MY":458,"MZ":508,"NA":516,"NC":540,"NE":562,"NG":566,"NI":558,"NL":528,"NO":578,"NP":524,"NZ":554,"OM":512,"PA":591,"PE":604,"PG":598,"PH":608,"PK":586,"PL":616,"PR":630,"PS":275,"PT":620,"PY":600,"QA":634,"RO":642,"RS":688,"RU":643,"RW":646,"SA":682,"SB":90,"SD":729,"SE":752,"SI":705,"SK":703,"SL":694,"SN":686,"SO":706,"SR":740,"SS":728,"SV":222,"SY":760,"SZ":748,"TD":148,"TF":260,"TG":768,"TH":764,"TJ":762,"TL":626,"TM":795,"TN":788,"TR":792,"TT":780,"TW":158,"TZ":834,"UA":804,"UG":800,"US":840,"UY":858,"UZ":860,"VE":862,"VN":704,"VU":548,"YE":887,"ZA":710,"ZM":894,"ZW":716};
