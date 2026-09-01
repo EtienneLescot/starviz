@@ -58,6 +58,9 @@ pub struct AuthStatus {
     pub user_code: Option<String>,
     pub verification_uri: Option<String>,
     pub erreur: Option<String>,
+    /// Secondes avant expiration du jeton, quand il en a une. Absent pour un
+    /// jeton permanent, qui est ce que GitHub délivre sans `offline_access`.
+    pub expire_dans: Option<i64>,
 }
 
 /// Ce que le front lit à chaque tour de `poll()`.

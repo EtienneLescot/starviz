@@ -85,6 +85,15 @@ const fmtMonth = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: '2-dig
 const fmtLong = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 const fmtStamp = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
 
+/** Secondes restantes -> « dans 7 h » / « dans 12 min ». Une échéance ne se lit
+ *  pas en secondes ; c'est l'ordre de grandeur qui renseigne. */
+function dureeRestante(s) {
+  if (s <= 0) return 'à renouveler';
+  if (s < 3600) return `dans ${Math.round(s / 60)} min`;
+  if (s < 172800) return `dans ${Math.round(s / 3600)} h`;
+  return `dans ${Math.round(s / 86400)} j`;
+}
+
 const state = {
   data: null,
   series: [],
@@ -1275,6 +1284,9 @@ function renderSettings() {
   }
   Promise.all([TAURI.core.invoke('reglages'), TAURI.core.invoke('infos')]).then(([r, i]) => {
     const mo = (o) => (o / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+    // Le sondage tourne depuis le démarrage : son dernier passage fait foi,
+    // plutôt qu'un appel de plus pour une information déjà en main.
+    const a = dernierAuth || { source: 'inconnue', connecte: false };
     const themeCourant = localStorage.getItem('starviz.theme') || 'auto';
     hote.innerHTML = `
       <section class="card">
@@ -1313,6 +1325,31 @@ function renderSettings() {
               <span class="s mono">${esc(i.chemin_captures)}</span></span>
             <span class="state ${i.nb_captures ? 'ok' : 'off'}"><i></i>${i.nb_captures || 'aucune'}</span>
           </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <header><h2>Compte GitHub</h2></header>
+        <div class="rows">
+          <div class="row">
+            <span class="grow"><span class="t">Connexion</span>
+              <span class="s">${a.source === 'oauth'
+                ? 'Jeton propre à StarViz, rangé dans le trousseau du système'
+                : (a.source === 'gh'
+                  ? "Jeton emprunté au CLI « gh » — StarViz n'a pas encore le sien"
+                  : 'Aucun compte connecté')}</span></span>
+            <span class="state ${a.connecte ? 'ok' : 'off'}"><i></i>${
+              a.source === 'oauth' ? 'OAuth' : (a.source === 'gh' ? 'gh' : 'hors ligne')}</span>
+          </div>
+          ${a.source === 'oauth' ? `<div class="row">
+            <span class="grow"><span class="t">Renouvellement</span>
+              <span class="s">${a.expire_dans === null || a.expire_dans === undefined
+                ? "GitHub n'a pas fixé d'échéance à ce jeton : il vaut jusqu'à révocation"
+                : 'Le jeton se renouvelle seul, sans nouvelle saisie de code'}</span></span>
+            <span class="state ${a.expire_dans !== null && a.expire_dans !== undefined && a.expire_dans <= 0 ? 'off' : 'ok'}"><i></i>${
+              a.expire_dans === null || a.expire_dans === undefined
+                ? 'permanent' : 'expire ' + dureeRestante(a.expire_dans)}</span>
+          </div>` : ''}
         </div>
       </section>
 

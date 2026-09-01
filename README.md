@@ -77,10 +77,21 @@ Pour pointer une autre application le temps d'un essai :
 STARVIZ_CLIENT_ID=Ov23li... npm run dev
 ```
 
-Les portées demandées sont `repo` et `read:org` : la première pour voir les
-dépôts privés dans la liste, la seconde pour énumérer les organisations.
-L'application OAuth a **Enable Device Flow** activé et l'expiration des jetons
-désactivée — StarViz ne gère pas encore le `refresh_token`.
+Les portées demandées sont `repo`, `read:org` et `offline_access` : les deux
+premières pour voir les dépôts privés et énumérer les organisations, la
+troisième pour obtenir un jeton court accompagné d'un jeton de renouvellement.
+L'application OAuth a **Enable Device Flow** activé.
+
+GitHub délivre alors un jeton de huit heures et de quoi le renouveler pendant
+six mois. StarViz s'en charge seul, dix minutes avant l'échéance : au
+démarrage, avant chaque collecte, et une fois par minute tant que la fenêtre
+reste ouverte. Renouveler un jeton issu du device flow ne demande pas de
+secret client — c'est ce qui rend l'opération possible depuis un binaire
+distribué, où aucun secret ne tiendrait.
+
+Le renouvellement est éprouvé dès la connexion plutôt qu'à la première
+échéance, et seuls les refus qui condamnent le jeton l'effacent : une coupure
+réseau ne déconnecte pas. L'écran Réglages affiche l'échéance en cours.
 
 Quand le jeton vient de `gh`, un bouton **Connecter GitHub** apparaît dans la
 barre du haut : c'est le chemin pour passer à un jeton propre. **Déconnexion**

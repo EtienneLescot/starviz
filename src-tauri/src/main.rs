@@ -26,6 +26,11 @@ fn hello() -> serde_json::Value {
 
 #[tauri::command]
 fn status(fetcher: State<Arc<Fetcher>>, etat: State<Arc<Etat>>) -> Status {
+    // L'entretien du jeton part à côté : le sondage rend l'état courant sans
+    // attendre un aller-retour vers GitHub. Il ne fait rien la plupart du
+    // temps, une fois par minute au plus.
+    let e = etat.inner().clone();
+    tauri::async_runtime::spawn(async move { e.entretenir().await });
     fetcher.status(etat.statut())
 }
 
@@ -134,6 +139,15 @@ async fn demarrer_connexion(app: &AppHandle) -> Result<serde_json::Value, String
         let resultat = auth::attendre(&client_id, &attente).await;
         match resultat {
             Ok(jeton) => {
+                eprintln!("connexion GitHub établie — jeton {}", jeton.resume());
+                let (jeton, alerte) = auth::eprouver(&client_id, jeton).await;
+                match alerte {
+                    Some(m) => eprintln!("ATTENTION — {m}"),
+                    None if jeton.refresh.is_some() => {
+                        eprintln!("renouvellement éprouvé — jeton {}", jeton.resume())
+                    }
+                    None => {}
+                }
                 if let Err(e) = auth::ecrire_jeton(&jeton) {
                     etat.terminer(Some(e));
                     return;
