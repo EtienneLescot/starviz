@@ -23,17 +23,24 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
 
 # Un déclencheur unique répété : le Planificateur n'offre pas de cadence
 # infra-journalière autrement.
-$declencheur = New-ScheduledTaskTrigger -Once -At (Get-Date).Date `
+$cadence = New-ScheduledTaskTrigger -Once -At (Get-Date).Date `
     -RepetitionInterval (New-TimeSpan -Hours $IntervalleHeures) `
     -RepetitionDuration (New-TimeSpan -Days 3650) `
     -RandomDelay (New-TimeSpan -Minutes 5)
+
+# Après un redémarrage, le rattrapage d'un créneau manqué repose sur une
+# heuristique du Planificateur, qu'on ne peut pas éprouver sans redémarrer.
+# Un déclencheur à l'ouverture de session le rend certain ; le délai laisse au
+# réseau le temps de monter.
+$ouverture = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$ouverture.Delay = 'PT3M'
 
 $reglages = New-ScheduledTaskSettingsSet -StartWhenAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 20) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -MultipleInstances IgnoreNew
 
-Register-ScheduledTask -TaskName $NomTache -Action $action -Trigger $declencheur `
+Register-ScheduledTask -TaskName $NomTache -Action $action -Trigger @($cadence, $ouverture) `
     -Settings $reglages -Force `
     -Description "Releve les classements GitHub Trending toutes les $IntervalleHeures h et pousse les donnees dans starviz-data." | Out-Null
 
