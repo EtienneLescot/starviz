@@ -277,10 +277,11 @@ pub fn lire() -> Trending {
         })
         .flatten()
         .collect();
-    // Les cases tenues d'abord, les cases quittées ensuite : un meilleur rang
-    // périmé passait devant une place du jour, et se lisait comme elle.
-    // Au sein de chaque groupe, du meilleur rang au moins bon.
-    lignes.sort_by_key(|l| (l.sortie, l.meilleur, l.rank));
+    // Du meilleur rang au moins bon : c'est le palmarès qu'on vient lire, et
+    // une sortie ne le diminue pas. Rien ne se confond, la colonne « Actuel »
+    // disant « sorti » là où la place n'est plus tenue. À rang égal, la case
+    // encore occupée passe devant.
+    lignes.sort_by_key(|l| (l.meilleur, l.sortie, l.rank));
 
     // Journal : on remonte les relevés deux à deux, du plus récent au plus
     // ancien, et on ne retient que ce qui a bougé — un relevé toutes les
