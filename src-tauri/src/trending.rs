@@ -58,9 +58,6 @@ pub struct Ligne {
     pub sortie: bool,
     pub total: Option<i64>,
     pub meilleur: i64,
-    /// Écart avec le relevé précédent. Négatif = progression vers la première
-    /// place. `None` quand la case vient d'apparaître.
-    pub delta: Option<i64>,
     pub ts: String,
     pub shot: Option<String>,
     /// Capture qui atteste le meilleur rang, quand il y en a une.
@@ -232,16 +229,6 @@ pub fn lire() -> Trending {
         }
     }
 
-    let precedent: HashMap<Case, i64> = if releves.len() >= 2 {
-        releves[releves.len() - 2]
-            .found
-            .iter()
-            .map(|t| (case(t), t.rank))
-            .collect()
-    } else {
-        HashMap::new()
-    };
-
     // On liste toutes les cases jamais occupées, pas seulement celles du
     // dernier relevé : sortir d'un classement est une information, et le
     // meilleur rang merite de survivre a la sortie.
@@ -281,9 +268,6 @@ pub fn lire() -> Trending {
                 sortie: courant.is_none(),
                 total,
                 meilleur,
-                delta: courant
-                    .zip(precedent.get(&c))
-                    .map(|(t, avant)| t.rank - avant),
                 ts: dernier.ts.clone(),
                 shot: courant.and_then(|t| t.shot.clone()),
                 preuve: de_capture
@@ -293,9 +277,10 @@ pub fn lire() -> Trending {
         })
         .flatten()
         .collect();
-    // Du meilleur rang jamais atteint au moins bon : c'est le palmarès, pas
-    // l'état courant. À égalité, le rang du jour départage.
-    lignes.sort_by_key(|l| (l.meilleur, l.rank));
+    // Les cases tenues d'abord, les cases quittées ensuite : un meilleur rang
+    // périmé passait devant une place du jour, et se lisait comme elle.
+    // Au sein de chaque groupe, du meilleur rang au moins bon.
+    lignes.sort_by_key(|l| (l.sortie, l.meilleur, l.rank));
 
     // Journal : on remonte les relevés deux à deux, du plus récent au plus
     // ancien, et on ne retient que ce qui a bougé — un relevé toutes les
