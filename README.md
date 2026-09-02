@@ -248,6 +248,30 @@ systemctl --user enable --now starviz-trending.timer
 loginctl enable-linger "$USER"   # relevés même sans session ouverte
 ```
 
+### Sous Windows
+
+Le Planificateur de tâches remplace systemd, et `windows\install-trending-task.ps1`
+l'enregistre — sans droits administrateur, dans le contexte de l'utilisateur
+courant :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\install-trending-task.ps1
+```
+
+La tâche appelle `windows\starviz-trending.ps1`, qui lance le même
+`--fetch-only --trending` et consigne tout dans
+`%LOCALAPPDATA%\starviz\trending.log`. Un relevé silencieux ne se remarque pas
+quand il meurt : c'est ce journal qui le dit.
+
+`-StartWhenAvailable` joue le rôle de `Persistent=true` — le relevé manqué
+pendant une extinction est rattrapé au démarrage suivant. La tâche ne tourne
+que session ouverte ; la faire tourner sans exige d'y déposer un mot de passe,
+ce qui n'en vaut pas la peine pour un relevé rattrapable.
+
+Les captures passent par Chrome ou Edge, cherchés dans le `PATH` puis à leur
+emplacement d'installation habituel — sous Windows un navigateur n'est jamais
+dans le `PATH`.
+
 ## Licence
 
 MIT — voir [LICENSE](LICENSE).

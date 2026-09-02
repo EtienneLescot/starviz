@@ -101,7 +101,15 @@ CAPTURES_DIR = DATA_DIR / "captures"
 # interdit d'écrire dans un dossier caché comme ~/.cache. On passe donc par un
 # dossier temporaire visible, puis on déplace le fichier.
 SHOT_TMP = Path.home() / "starviz-shot-tmp"
-SHOT_BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable")
+SHOT_BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
+                 "chrome", "msedge")
+# Sous Windows un navigateur ne s'installe pas dans le PATH : sans ces chemins
+# par défaut, la recherche échoue et les captures disparaissent en silence.
+SHOT_BROWSERS_WIN = (
+    r"Google\Chrome\Application\chrome.exe",
+    r"Microsoft\Edge\Application\msedge.exe",
+    r"Chromium\Application\chrome.exe",
+)
 
 
 class GhError(RuntimeError):
@@ -349,9 +357,24 @@ class Fetcher:
         return events, locations
 
 
+def find_browser() -> str | None:
+    """Navigateur sans interface capable de photographier une page."""
+    trouve = next((shutil.which(b) for b in SHOT_BROWSERS if shutil.which(b)), None)
+    if trouve or os.name != "nt":
+        return trouve
+    bases = (os.environ.get("PROGRAMFILES"), os.environ.get("PROGRAMFILES(X86)"),
+             os.environ.get("LOCALAPPDATA"))
+    for base in filter(None, bases):
+        for suffixe in SHOT_BROWSERS_WIN:
+            chemin = Path(base) / suffixe
+            if chemin.exists():
+                return str(chemin)
+    return None
+
+
 def capture_page(url: str, nom: str) -> str | None:
     """Photographie une page de classement : une image vaut mieux qu'un rang."""
-    navigateur = next((shutil.which(b) for b in SHOT_BROWSERS if shutil.which(b)), None)
+    navigateur = find_browser()
     if not navigateur:
         return None
     SHOT_TMP.mkdir(parents=True, exist_ok=True)
