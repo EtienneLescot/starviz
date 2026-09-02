@@ -1153,7 +1153,9 @@ function renderTrending() {
       return;
     }
 
-    const rangs = t.lignes.map((l) => l.rank).filter((r) => r !== null && r !== undefined);
+    // Le badge annonce une place tenue : une case quittee n'en est plus une.
+    const rangs = t.lignes.filter((l) => !l.sortie)
+      .map((l) => l.rank).filter((r) => r !== null && r !== undefined);
     const meilleur = rangs.length ? Math.min(...rangs) : null;
     $('#nav-trending-badge').classList.toggle('hidden', meilleur === null);
     if (meilleur !== null) $('#nav-trending-badge').textContent = '#' + meilleur;
@@ -1165,29 +1167,28 @@ function renderTrending() {
 
     const fenetres = { daily: 'journalier', weekly: 'hebdomadaire', monthly: 'mensuel' };
     const lignes = t.lignes.map((l) => {
-      // Une case quittee garde son rang et sa pleine lisibilite : une preuve
-      // reconstituee vaut une mesure, seule la methode d'acquisition differe.
-      const d = l.delta;
-      const cls = l.sortie || d === null || d === 0 ? 'flat' : (d < 0 ? 'up' : 'down');
-      const txt = l.sortie ? 'sorti' : (d === null ? 'nouveau' : (d === 0 ? '—' : (d < 0 ? '▲ ' + -d : '▼ ' + d)));
+      // Le meilleur rang d'abord : c'est le palmarès qu'on vient lire. Le rang
+      // du jour le suit, et vaut « sorti » quand la place n'est plus tenue --
+      // y laisser l'ancien rang le faisait passer pour la place du moment.
       return `<tr>
         <td><span style="display:flex;align-items:center;gap:9px">
           <span class="kind">${l.scope === 'developer' ? 'dév' : 'dépôt'}</span>
           <span>${esc(fenetres[l.window] || l.window)}</span></span></td>
         <td style="color:var(--muted)">${esc(l.lang || 'toutes langues')}</td>
-        <td class="num"><span class="rank${l.rank <= 3 ? ' top' : ''}">#${l.rank}</span>${
-          l.total ? `<span style="color:var(--faint)"> / ${l.total}</span>` : ''}</td>
-        <td class="num" style="color:var(--muted)">#${l.meilleur}${
+        <td class="num"><span class="rank${l.meilleur <= 3 ? ' top' : ''}">#${l.meilleur}</span>${
           l.preuve ? ` <span class="preuve" data-voir="${esc(l.preuve)}">voir</span>` : ''}</td>
-        <td class="num"><span class="delta ${cls}">${txt}</span></td>
+        <td class="num">${l.sortie
+          ? '<span class="sorti">sorti</span>'
+          : `<span class="rank">#${l.rank}</span>${
+              l.total ? `<span style="color:var(--faint)"> / ${l.total}</span>` : ''}`}</td>
       </tr>`;
     }).join('');
 
     hote.innerHTML = `
       <section class="card">
         <div style="overflow-x:auto"><table class="tbl">
-          <thead><tr><th>Classement</th><th>Langage</th><th class="num">Rang</th><th class="num">Meilleur</th><th class="num">Delta</th></tr></thead>
-          <tbody>${lignes || '<tr><td colspan="5" style="color:var(--faint)">Absent de tous les classements au dernier relevé.</td></tr>'}</tbody>
+          <thead><tr><th>Classement</th><th>Langage</th><th class="num">Meilleur</th><th class="num">Actuel</th></tr></thead>
+          <tbody>${lignes || '<tr><td colspan="4" style="color:var(--faint)">Absent de tous les classements au dernier relevé.</td></tr>'}</tbody>
         </table></div>
       </section>
 
@@ -1235,11 +1236,14 @@ function renderTrending() {
   }).catch((e) => { hote.innerHTML = `<div class="error"><b>Trending</b>${esc(String(e))}</div>`; });
 }
 
-/** Affiche une capture en grand. */
+/** Affiche une capture à sa taille native, à parcourir de haut en bas. */
 function ouvrirVisio(src, legende) {
   $('#visio-img').src = src;
   $('#visio-cap').textContent = legende;
   $('#visio').classList.remove('hidden');
+  // Une capture fait plusieurs milliers de pixels de haut : réduite à la
+  // fenêtre, elle ne se lisait plus. On l'ouvre en haut, on la fait défiler.
+  $('#visio .defile').scrollTop = 0;
 }
 
 const fermerVisio = () => {
@@ -1449,7 +1453,10 @@ function bindCoquille() {
     renderPaletteRows();
   });
 
-  $('#visio').addEventListener('click', fermerVisio);
+  // Le clic ferme, sauf sur l'image elle-même : on vient la lire.
+  $('#visio').addEventListener('click', (e) => {
+    if (e.target.id !== 'visio-img') fermerVisio();
+  });
 
   addEventListener('keydown', (e) => {
     if (visioOuverte()) {

@@ -372,18 +372,26 @@ def find_browser() -> str | None:
     return None
 
 
-def capture_page(url: str, nom: str) -> str | None:
-    """Photographie une page de classement : une image vaut mieux qu'un rang."""
+def capture_page(url: str, nom: str, rang: int = 0) -> str | None:
+    """Photographie une page de classement : une image vaut mieux qu'un rang.
+
+    La fenêtre est haute comme il faut pour atteindre la ligne visée. À
+    hauteur fixe, une capture s'arrêtait avant elle dès le 18e rang : une
+    preuve où l'on ne figure pas ne prouve rien, et rien ne le signalait.
+    """
     navigateur = find_browser()
     if not navigateur:
         return None
     SHOT_TMP.mkdir(parents=True, exist_ok=True)
     CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
     brut = SHOT_TMP / nom
+    # En-tête de la page, puis une ligne large : les lignes « dépôt » sont plus
+    # hautes que les lignes « développeur », la marge couvre les deux.
+    hauteur = min(1000 + max(rang, 1) * 240, 12000)
     try:
         subprocess.run(
             [navigateur, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-             "--window-size=1280,2600", f"--screenshot={brut}", url],
+             f"--window-size=1280,{hauteur}", f"--screenshot={brut}", url],
             capture_output=True, timeout=120)
         if not brut.exists():
             return None
@@ -464,7 +472,7 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
                     if shots and nouveau:
                         fichier = (f"{horodatage.replace(':', '').replace('-', '')}"
                                    f"_{scope}_{window}_{lang or 'all'}_rang{i}.png")
-                        trouve["shot"] = capture_page(url, fichier)
+                        trouve["shot"] = capture_page(url, fichier, i)
                     releve["found"].append(trouve)
                 time.sleep(1)  # courtoisie envers github.com
     return releve

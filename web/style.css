@@ -370,11 +370,9 @@ main { flex: 1; min-width: 0; overflow: auto; }
 
 .rank { font-family: var(--mono); font-weight: 600; font-size: 13.5px; }
 .rank.top { color: var(--acc-txt); }
+/* Place qui n'est plus tenue : elle se dit, elle ne se chiffre pas. */
+.sorti { font-family: var(--mono); font-size: 12.5px; color: var(--faint); }
 .kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; padding: 1px 7px; background: var(--sunken); color: var(--muted); flex: none; }
-.delta { font-family: var(--mono); font-size: 12.5px; }
-.delta.up { color: var(--pos); }
-.delta.down { color: var(--neg); }
-.delta.flat { color: var(--faint); }
 .shots { padding: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .shot { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--rail); }
 /* La trame hachuree sert de fond d'attente : elle reste visible tant que
@@ -425,20 +423,29 @@ kbd {
 
 /* ----------------------------------------------------------- visionneuse */
 
+/* Une capture de classement fait 1280 px de large et jusqu'à douze mille de
+   haut. La tenir entière dans la fenêtre la rendait illisible : on la montre
+   à sa largeur native et on la fait défiler. */
 .visio {
   position: fixed; inset: 0; z-index: 70;
   background: var(--sh-3); backdrop-filter: blur(3px);
-  display: grid; place-items: center; align-content: center; gap: 14px;
-  padding: 36px; cursor: zoom-out; animation: svveil .12s ease;
+  cursor: zoom-out; animation: svveil .12s ease;
 }
+/* Le défilement est confié à une couche interne : `backdrop-filter` fait du
+   voile le bloc conteneur de ses descendants `fixed`, et la légende s'en
+   allait avec l'image. */
+.visio .defile { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; }
+.visio .cadre { display: flex; justify-content: center; padding: 28px 24px 76px; }
 .visio img {
-  max-width: 100%; max-height: calc(100vh - 130px);
+  width: min(1280px, 100%); height: auto; cursor: default;
   border-radius: 12px; box-shadow: 0 32px 70px -24px var(--sh-3);
   background: var(--surf); animation: svpop .14s ease;
 }
 /* La légende est une pastille opaque : posée à même le voile, elle serait
-   illisible dans l'un des deux thèmes. */
+   illisible dans l'un des deux thèmes. Elle reste à l'écran pendant le
+   défilement, sans quoi on perd de quel classement il s'agit. */
 .visio .cap {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
   background: var(--surf); color: var(--ink);
   border: 1px solid var(--line); border-radius: 9px;
   padding: 6px 12px; font-size: 12.5px; font-family: var(--mono);
