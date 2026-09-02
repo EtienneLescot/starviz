@@ -400,13 +400,22 @@ def capture_page(url: str, nom: str) -> str | None:
 
 
 def derniers_rangs() -> dict[tuple, int]:
-    """Dernier rang connu pour chaque case du classement (scope, fenêtre, langage)."""
+    """Rang connu pour chaque case du classement (scope, fenêtre, langage).
+
+    Une case consultée où l'on n'apparaît plus s'efface : sans cela la sortie
+    d'un classement se redécouvre à chaque passage, et le dépôt de données
+    reçoit un commit toutes les 3 heures pour un évènement déjà vieux.
+    """
     vus: dict[tuple, int] = {}
     try:
         for ligne in TRENDING_FILE.read_text("utf-8").splitlines():
             if not ligne.strip():
                 continue
             releve = json.loads(ligne)
+            # Les relevés antérieurs à ce champ ne disent pas ce qu'ils ont
+            # consulté : d'eux, on ne peut retenir que ce qu'ils ont trouvé.
+            for scope, window, lang in releve.get("seen", []):
+                vus.pop((scope, window, lang), None)
             for t in releve.get("found", []):
                 vus[(t["scope"], t["window"], t.get("lang"))] = t["rank"]
     except (OSError, ValueError):
@@ -423,7 +432,9 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
     """
     import re
     horodatage = now_iso()
-    releve = {"ts": horodatage, "found": [], "checked": 0, "errors": []}
+    # « seen » recense les cases réellement consultées : une page en échec
+    # n'est pas une absence du classement.
+    releve = {"ts": horodatage, "found": [], "checked": 0, "errors": [], "seen": []}
     connus = derniers_rangs()
     for scope, (base, pattern) in TRENDING_PAGES.items():
         cibles = [login.lower()] if scope == "developer" else [r.lower() for r in repos]
@@ -440,6 +451,7 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
                     releve["errors"].append(f"{scope}/{lang or 'all'}/{window}: {exc}"[:120])
                     continue
                 releve["checked"] += 1
+                releve["seen"].append([scope, window, lang])
                 noms = [n.lower() for n in re.findall(pattern, html)]
                 for i, nom in enumerate(noms, 1):
                     if nom not in cibles:
