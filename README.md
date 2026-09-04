@@ -272,6 +272,30 @@ Les captures passent par Chrome ou Edge, cherchés dans le `PATH` puis à leur
 emplacement d'installation habituel — sous Windows un navigateur n'est jamais
 dans le `PATH`.
 
+### Reconstituer l'historique
+
+Le relevé ne connaît que ce qu'il a vu depuis sa première exécution. Les
+passages antérieurs, et ceux manqués pendant une extinction, se récupèrent
+chez [Trendshift](https://trendshift.io), qui photographie chaque jour la
+liste Trending et publie l'historique dans la page de chaque compte et de
+chaque dépôt.
+
+```bash
+python3 tools/import_trendshift.py --dry-run   # voir avant d'écrire
+python3 tools/import_trendshift.py
+```
+
+Les lignes importées portent `"source": "trendshift"` et se rangent à leur
+date dans `trending.jsonl` : rejoué à l'envers, le journal ferait passer un
+rang de juillet pour la position du jour. Relancer l'import ne les empile
+pas, il les remplace.
+
+Le complément s'arrête là où commence l'intérêt du relevé : **Trendshift ne
+couvre que la fenêtre journalière**, comme les archives publiques. Un passage
+hebdomadaire ou mensuel n'y figure pas, et ne figure nulle part ailleurs.
+Une absence chez Trendshift n'atteste donc de rien — les lignes importées ne
+déclarent aucune case consultée.
+
 ## Licence
 
 MIT — voir [LICENSE](LICENSE).
