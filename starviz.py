@@ -242,6 +242,12 @@ class Fetcher:
             # d'organisation : on repart de la dernière liste connue.
             orgs = list((self.data or {}).get("orgs") or [])
             erreurs.append(f"organisations : {exc}")
+        # L'API répond parfois 200 avec une liste vide. La croire retire d'un
+        # coup tous les dépôts d'organisation — le relevé a ainsi cessé de
+        # suivre getopenscreen/openscreen le 7 septembre 2026, sans un mot.
+        if not orgs and (self.data or {}).get("orgs"):
+            orgs = list(self.data["orgs"])
+            erreurs.append("organisations : liste vide reçue, dernière liste connue conservée")
 
         repos_raw: list[dict] = []
         seen: set[str] = set()
@@ -262,6 +268,13 @@ class Fetcher:
         locations: dict[str, str] = dict((self.data or {}).get("locations") or {})
         repos: list[dict] = []
         starred = [r for r in repos_raw if r.get("stargazerCount", 0) > 0]
+        # Pas un seul dépôt étoilé là où le cache en connaissait : ce n'est pas
+        # une nouvelle, c'est « gh » qui sort avec 0 sur une liste tronquée
+        # quand l'authentification a glissé. Écraser le cache avec ce vide a
+        # rendu le relevé aveugle 27 h le 6 septembre 2026 — openscreen y a
+        # fait sa montée sans témoin. Sans écriture, le cache reste valable.
+        if not starred and any(r.get("stars", 0) > 0 for r in previous.values()):
+            raise GhError("aucun dépôt étoilé rendu par « gh » : cache conservé")
         total = len(starred)
 
         for repo in sorted(repos_raw, key=lambda r: -r.get("stargazerCount", 0)):
@@ -408,7 +421,7 @@ def capture_page(url: str, nom: str, rang: int = 0) -> str | None:
 
 
 def derniers_rangs() -> dict[tuple, int]:
-    """Rang connu pour chaque case du classement (scope, fenêtre, langage).
+    """Rang connu par entité et par case du classement (scope, fenêtre, langage).
 
     Une case consultée où l'on n'apparaît plus s'efface : sans cela la sortie
     d'un classement se redécouvre à chaque passage, et le dépôt de données
@@ -423,17 +436,19 @@ def derniers_rangs() -> dict[tuple, int]:
             # Les relevés antérieurs à ce champ ne disent pas ce qu'ils ont
             # consulté : d'eux, on ne peut retenir que ce qu'ils ont trouvé.
             for scope, window, lang in releve.get("seen", []):
-                vus.pop((scope, window, lang), None)
+                # Une case héberge plusieurs entités : toutes en sortent.
+                for cle in [c for c in vus if c[:3] == (scope, window, lang)]:
+                    del vus[cle]
             for t in releve.get("found", []):
-                vus[(t["scope"], t["window"], t.get("lang"))] = t["rank"]
+                vus[(t["scope"], t["window"], t.get("lang"), t["entity"])] = t["rank"]
     except (OSError, ValueError):
         pass
     return vus
 
 
-def trending_ranks(login: str, repos: list[str], langs: list[str],
+def trending_ranks(devs: list[str], repos: list[str], langs: list[str],
                    shots: bool = True) -> dict:
-    """Relève la position de l'utilisateur et de ses dépôts dans les classements.
+    """Relève la position des comptes suivis et de leurs dépôts dans les classements.
 
     Chaque classement existe sans filtre et par langage ; le rang y est très
     différent, et seule la version filtrée révèle parfois une bonne place.
@@ -445,7 +460,8 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
     releve = {"ts": horodatage, "found": [], "checked": 0, "errors": [], "seen": []}
     connus = derniers_rangs()
     for scope, (base, pattern) in TRENDING_PAGES.items():
-        cibles = [login.lower()] if scope == "developer" else [r.lower() for r in repos]
+        cibles = ([d.lower() for d in devs] if scope == "developer"
+                  else [r.lower() for r in repos])
         for lang in [None, *langs]:
             racine = base if lang is None else f"{base}/{lang}"
             for window in TRENDING_WINDOWS:
@@ -468,10 +484,13 @@ def trending_ranks(login: str, repos: list[str], langs: list[str],
                               "entity": nom, "rank": i, "total": len(noms)}
                     # Une capture par changement de rang : à chaque passage, on
                     # accumulerait des dizaines d'images identiques par jour.
-                    nouveau = connus.get((scope, window, lang)) != i
+                    nouveau = connus.get((scope, window, lang, nom)) != i
                     if shots and nouveau:
+                        # Le nom de l'entité : une case en héberge plusieurs, et
+                        # un fichier qui ne dit que le rang ne dit plus de qui.
+                        qui = nom.replace("/", "-")
                         fichier = (f"{horodatage.replace(':', '').replace('-', '')}"
-                                   f"_{scope}_{window}_{lang or 'all'}_rang{i}.png")
+                                   f"_{scope}_{window}_{lang or 'all'}_{qui}_rang{i}.png")
                         trouve["shot"] = capture_page(url, fichier, i)
                     releve["found"].append(trouve)
                 time.sleep(1)  # courtoisie envers github.com
@@ -521,6 +540,11 @@ def record_trending(shots: bool = True) -> int:
     """Relève les classements, les journalise, et affiche les meilleurs connus."""
     login = run_gh(["api", "user", "--jq", ".login"]).strip()
     cache = read_json(CACHE_FILE) or {}
+    # Les organisations sont suivies comme le compte. GitHub ne les classe
+    # pas parmi les développeurs aujourd'hui — 9 pages relevées le
+    # 12 septembre 2026, 136 comptes, pas une organisation — mais la cible
+    # ne coûte rien : la page est déjà lue, c'est une comparaison de plus.
+    devs = [login, *(cache.get("orgs") or [])]
     etoiles = [r for r in cache.get("repos", []) if r.get("stars", 0) > 0]
     repos = [r["full_name"] for r in etoiles]
 
@@ -533,7 +557,7 @@ def record_trending(shots: bool = True) -> int:
     langs = [l for l, _ in sorted(compte.items(), key=lambda kv: -kv[1])[:2]]
 
     connus = derniers_rangs()
-    releve = trending_ranks(login, repos, langs, shots=shots)
+    releve = trending_ranks(devs, repos, langs, shots=shots)
 
     TRENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     with TRENDING_FILE.open("a", encoding="utf-8") as fh:
@@ -554,7 +578,8 @@ def record_trending(shots: bool = True) -> int:
     for t in sorted(releve["found"], key=lambda t: t["rank"]):
         # Meilleur rang déjà observé dans la même case du classement.
         anciens = [f["rank"] for h in historique for f in h.get("found", [])
-                   if (f["scope"], f["window"], f.get("lang")) == (t["scope"], t["window"], t.get("lang"))]
+                   if (f["scope"], f["window"], f.get("lang"), f["entity"])
+                   == (t["scope"], t["window"], t.get("lang"), t["entity"])]
         record = f" · meilleur : #{min(anciens)}" if anciens else ""
         image = "  📷" if t.get("shot") else ""
         print(f"  {t['scope']:<10} {t['window']:<8} {t.get('lang') or 'tous langages':<12}"
@@ -563,14 +588,15 @@ def record_trending(shots: bool = True) -> int:
     if shots and CAPTURES_DIR.exists():
         print(f"{len(list(CAPTURES_DIR.glob('*.png')))} capture(s) dans {CAPTURES_DIR}")
     # Un évènement digne d'un commit : un rang qui bouge, ou une capture.
-    avant = {(k[0], k[1], k[2]): v for k, v in connus.items()}
-    apres = {(t["scope"], t["window"], t.get("lang")): t["rank"] for t in releve["found"]}
+    avant = dict(connus)
+    apres = {(t["scope"], t["window"], t.get("lang"), t["entity"]): t["rank"]
+             for t in releve["found"]}
     changements = []
     for cle in sorted(set(avant) | set(apres), key=str):
         ancien, nouveau = avant.get(cle), apres.get(cle)
         if ancien == nouveau:
             continue
-        libelle = f"{cle[1]}/{cle[2] or 'tous'}"
+        libelle = f"{cle[3].split('/')[-1]} {cle[1]}/{cle[2] or 'tous'}"
         if nouveau is None:
             changements.append(f"{libelle} sorti")
         elif ancien is None:
