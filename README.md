@@ -290,11 +290,24 @@ date dans `trending.jsonl` : rejoué à l'envers, le journal ferait passer un
 rang de juillet pour la position du jour. Relancer l'import ne les empile
 pas, il les remplace.
 
-Le complément s'arrête là où commence l'intérêt du relevé : **Trendshift ne
-couvre que la fenêtre journalière**, comme les archives publiques. Un passage
-hebdomadaire ou mensuel n'y figure pas, et ne figure nulle part ailleurs.
-Une absence chez Trendshift n'atteste donc de rien — les lignes importées ne
-déclarent aucune case consultée.
+**Trendshift ne couvre que la fenêtre journalière**, et n'indexe que les
+comptes personnels — GitHub ne classe aucune organisation parmi ses
+développeurs. Une absence chez Trendshift n'atteste donc de rien : les lignes
+importées ne déclarent aucune case consultée.
+
+Reste la Wayback Machine, qui photographie github.com/trending de temps à
+autre — les fenêtres hebdomadaire et mensuelle comprises, ce qu'aucune autre
+source publique ne fait :
+
+```bash
+python3 tools/import_wayback.py --depuis 2026-08-01 --dry-run
+python3 tools/import_wayback.py --depuis 2026-08-01
+```
+
+Les copies sont irrégulières, quelques-unes par semaine et par page, et la
+page sans filtre de langage en compte des centaines : l'import dure une
+demi-heure. Les lignes portent `"source": "wayback"` et l'URL de la copie
+dans `archive`, de quoi retourner voir la preuve.
 
 ## Licence
 
