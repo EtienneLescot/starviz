@@ -107,13 +107,17 @@ def main() -> int:
         login = sorted(proprietaires, key=lambda o: -sum(
             d.startswith(o + "/") for d in depots))[0]
 
-    # Une entité = une page Trendshift. Le compte d'abord, les dépôts ensuite.
+    # Une entité = une page Trendshift. Les comptes d'abord, organisations
+    # comprises, les dépôts ensuite. Trendshift n'a pas de page pour une
+    # organisation : le classement des développeurs n'en liste aucune.
     entites: list[tuple[str, str, str]] = []
-    chemin = cible_developpeur(login)
-    if chemin:
-        entites.append(("developer", login.lower(), chemin))
-    else:
-        print(f"compte « {login} » absent de Trendshift", file=sys.stderr)
+    for compte in [login, *(cache.get("orgs") or [])]:
+        chemin = cible_developpeur(compte)
+        if chemin:
+            entites.append(("developer", compte.lower(), chemin))
+        else:
+            print(f"compte « {compte} » absent de Trendshift", file=sys.stderr)
+        time.sleep(1)  # courtoisie envers trendshift.io
     for full_name in depots:
         chemin = cible_depot(full_name)
         if chemin:
