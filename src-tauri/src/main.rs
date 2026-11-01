@@ -44,10 +44,11 @@ fn data(fetcher: State<Arc<Fetcher>>) -> Option<Data> {
 #[tauri::command]
 fn refresh(
     force: Option<bool>,
+    repos: Option<Vec<String>>,
     fetcher: State<Arc<Fetcher>>,
     etat: State<Arc<Etat>>,
 ) -> serde_json::Value {
-    let started = fetcher.start(force.unwrap_or(false));
+    let started = fetcher.start(force.unwrap_or(false), repos);
     let s = fetcher.status(etat.statut());
     serde_json::json!({ "started": started, "status": s })
 }
@@ -156,7 +157,7 @@ async fn demarrer_connexion(app: &AppHandle) -> Result<serde_json::Value, String
                 etat.terminer(None);
                 // Le compte vient de changer : l'historique du précédent ne
                 // vaut plus rien, on repart d'une collecte complète.
-                handle.state::<Arc<Fetcher>>().inner().clone().start(true);
+                handle.state::<Arc<Fetcher>>().inner().clone().start(true, None);
             }
             Err(e) => etat.terminer(Some(e)),
         }
@@ -238,7 +239,7 @@ fn main() {
                     "show" => montrer(app),
                     "refresh" => {
                         let f = app.state::<Arc<Fetcher>>();
-                        f.start(false);
+                        f.start(false, None);
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -268,7 +269,7 @@ fn main() {
                 // Première collecte : immédiate si l'historique est absent ou
                 // vieux d'une heure, comme le faisait le serveur Python.
                 if etat.statut().connecte && fetcher.est_perime() {
-                    fetcher.start(false);
+                    fetcher.start(false, None);
                 }
             });
             Ok(())

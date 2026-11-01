@@ -69,7 +69,10 @@ impl Fetcher {
     }
 
     /// Démarre une collecte. Renvoie `false` si une est déjà en cours.
-    pub fn start(self: &Arc<Self>, force: bool) -> bool {
+    ///
+    /// `seulement` limite la repagination aux dépôts nommés : le bouton
+    /// Actualiser n'envoie que ceux que l'interface affiche.
+    pub fn start(self: &Arc<Self>, force: bool, seulement: Option<Vec<String>>) -> bool {
         {
             let mut g = self.inner.lock().unwrap();
             if g.state == "running" {
@@ -81,6 +84,12 @@ impl Fetcher {
             g.done = 0;
             g.total = 0;
         }
+
+        // Une liste vide vaut tous les dépôts : « rien de sélectionné » ne
+        // doit pas vouloir dire « rien à collecter ».
+        let seulement: Option<std::collections::HashSet<String>> = seulement
+            .filter(|v| !v.is_empty())
+            .map(|v| v.into_iter().collect());
 
         let moi = self.clone();
         let precedent = self.data();
@@ -108,7 +117,7 @@ impl Fetcher {
             // Relus a chaque collecte : changer la concurrence prend effet a
             // la suivante, sans redemarrer l'application.
             let reglages = crate::settings::read();
-            match github::collect(jeton, force, precedent, prog, reglages).await {
+            match github::collect(jeton, force, seulement, precedent, prog, reglages).await {
                 Ok(data) => {
                     if let Err(e) = store::write(&data) {
                         // L'historique n'a pas pu être écrit : l'affichage est

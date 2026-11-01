@@ -112,10 +112,29 @@ impl Client {
     pub async fn graphql_paginee<T: DeserializeOwned>(
         &self,
         requete: &str,
-        mut variables: Value,
+        variables: Value,
         chemin: &[&str],
         champ: &str,
     ) -> Result<Vec<T>, String> {
+        self.graphql_paginee_tant_que(requete, variables, chemin, champ, |_| true)
+            .await
+    }
+
+    /// Comme `graphql_paginee`, mais s'arrête quand `encore` répond faux pour
+    /// le lot qui vient d'arriver : de quoi remonter une connexion jusqu'à la
+    /// première entrée déjà connue, sans redérouler les pages d'avant.
+    pub async fn graphql_paginee_tant_que<T, F>(
+        &self,
+        requete: &str,
+        mut variables: Value,
+        chemin: &[&str],
+        champ: &str,
+        mut encore: F,
+    ) -> Result<Vec<T>, String>
+    where
+        T: DeserializeOwned,
+        F: FnMut(&[T]) -> bool,
+    {
         let mut tout = Vec::new();
         let mut curseur: Option<String> = None;
         loop {
@@ -132,7 +151,11 @@ impl Client {
                 .ok_or_else(|| format!("réponse GraphQL sans champ « {champ} »"))?;
             let lot: Vec<T> = serde_json::from_value(items.clone())
                 .map_err(|e| format!("nœuds GraphQL illisibles ({e})"))?;
+            let continuer = encore(&lot);
             tout.extend(lot);
+            if !continuer {
+                return Ok(tout);
+            }
 
             let page = noeud.get("pageInfo");
             let encore = page

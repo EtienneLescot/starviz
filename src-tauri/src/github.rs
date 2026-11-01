@@ -36,9 +36,9 @@ const REQ_ORGS: &str = "query($endCursor: String) {
   }
 }";
 
-const REQ_STARGAZERS: &str = "query($owner: String!, $name: String!, $endCursor: String) {
+const REQ_STARGAZERS: &str = "query($owner: String!, $name: String!, $endCursor: String, $dir: OrderDirection!) {
   repository(owner: $owner, name: $name) {
-    stargazers(first: 100, after: $endCursor, orderBy: {field: STARRED_AT, direction: ASC}) {
+    stargazers(first: 100, after: $endCursor, orderBy: {field: STARRED_AT, direction: $dir}) {
       pageInfo { hasNextPage endCursor }
       edges { starredAt node { login location } }
     }
@@ -65,29 +65,72 @@ struct ProfilStargazer {
     location: Option<String>,
 }
 
+/// Historique complété par la fin. Le tri porte sur le couple entier, pas sur
+/// la seule date : c'est ce qui rend les doublons adjacents, donc effaçables.
+/// Un doublon fausserait les comptages, et l'historique ne se rattrape pas.
+fn fusionner(mut base: Vec<Event>, nouveaux: Vec<Event>) -> Vec<Event> {
+    base.extend(nouveaux);
+    base.sort();
+    base.dedup();
+    base
+}
+
+/// Vrai si cette étoile manque à l'historique. Un compte supprimé compte pour
+/// connu : il n'apporte rien et ne doit pas relancer la pagination.
+fn est_nouveau(arc: &ArcStargazer, connus: &HashSet<Event>) -> bool {
+    arc.node
+        .as_ref()
+        .is_some_and(|p| !connus.contains(&(arc.starred_at.clone(), p.login.clone())))
+}
+
+/// La règle d'arrêt de la pagination incrémentale : on continue tant que la
+/// page apporte au moins une étoile inconnue.
+///
+/// S'arrêter à la première étoile connue paraissait suffisant, les étoiles
+/// arrivant par la fin. Mais GitHub sert des `starredAt` jusqu'à quelques
+/// minutes dans le futur : l'étoile suivante est alors horodatée AVANT celle
+/// qu'on connaît déjà, donc classée dessous, et un arrêt au premier connu la
+/// laisserait manquante pour de bon.
+fn page_a_du_nouveau(lot: &[ArcStargazer], connus: &HashSet<Event>) -> bool {
+    lot.iter().any(|a| est_nouveau(a, connus))
+}
+
 /// Évènements triés + localisations des profils.
 ///
 /// GraphQL sert les deux d'un coup : l'équivalent REST demanderait une requête
 /// supplémentaire par utilisateur pour connaître sa localisation.
+///
+/// Avec `connus`, on remonte du plus récent au plus ancien et on s'arrête à la
+/// première étoile déjà présente dans l'historique : seules les nouvelles sont
+/// renvoyées. Sans, on déroule tout dans l'ordre chronologique.
 async fn stargazers(
     client: &Client,
     full_name: &str,
+    connus: Option<&HashSet<Event>>,
 ) -> Result<(Vec<Event>, BTreeMap<String, String>), String> {
     let (owner, name) = full_name
         .split_once('/')
         .ok_or_else(|| "nom de dépôt invalide".to_string())?;
+    let dir = if connus.is_some() { "DESC" } else { "ASC" };
     let arcs: Vec<ArcStargazer> = client
-        .graphql_paginee(
+        .graphql_paginee_tant_que(
             REQ_STARGAZERS,
-            json!({ "owner": owner, "name": name }),
+            json!({ "owner": owner, "name": name, "dir": dir }),
             &["repository", "stargazers"],
             "edges",
+            |lot: &[ArcStargazer]| match connus {
+                Some(connus) => page_a_du_nouveau(lot, connus),
+                None => true,
+            },
         )
         .await?;
 
     let mut events: Vec<Event> = Vec::with_capacity(arcs.len());
     let mut locations = BTreeMap::new();
     for arc in arcs {
+        if connus.is_some_and(|c| !est_nouveau(&arc, c)) {
+            continue;
+        }
         // Un compte supprimé entre-temps laisse une étoile sans profil : elle
         // compte quand même dans la courbe.
         let Some(profil) = arc.node else { continue };
@@ -144,9 +187,12 @@ async fn depots_de_lorg(client: &Client, org: &str) -> Result<Vec<GhRepo>, Strin
         .await
 }
 
+/// `seulement` restreint la repagination aux dépôts nommés, ceux que
+/// l'interface suit. Les autres gardent l'historique déjà collecté.
 pub async fn collect(
     jeton: String,
     force: bool,
+    seulement: Option<HashSet<String>>,
     precedent: Option<Data>,
     prog: Progress,
     reglages: crate::settings::Settings,
@@ -252,13 +298,25 @@ pub async fn collect(
         });
     }
 
-    // Seuls les dépôts étoilés valent une pagination GraphQL.
-    let a_traiter: Vec<usize> = fiches
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| f.stars > 0)
-        .map(|(i, _)| i)
-        .collect();
+    // Seuls les dépôts étoilés valent une pagination GraphQL, et seuls ceux
+    // que l'interface suit : actualiser une courbe n'a pas à attendre les
+    // pages des dépôts qu'on ne regarde pas. Un dépôt sans historique est
+    // collecté quoi qu'il arrive, c'est ce qui rattrape une collecte échouée
+    // et ce qui amorce un dépôt tout juste étoilé.
+    let mut a_traiter: Vec<usize> = Vec::new();
+    for (i, f) in fiches.iter_mut().enumerate() {
+        if f.stars == 0 {
+            continue;
+        }
+        let cache = ancien.get(&f.full_name);
+        let vide = cache.map_or(true, |c| c.events.is_empty());
+        let suivi = seulement.as_ref().map_or(true, |s| s.contains(&f.full_name));
+        if suivi || vide {
+            a_traiter.push(i);
+        } else if let Some(c) = cache {
+            f.events = c.events.clone();
+        }
+    }
     let total = a_traiter.len();
     let faits = Arc::new(AtomicUsize::new(0));
 
@@ -270,25 +328,38 @@ pub async fn collect(
         let faits = faits.clone();
         let client = client.clone();
         async move {
-            // On ne repagine que ce qui a bougé : le nombre d'étoiles fait
-            // office d'empreinte. Une fiche sans évènements n'est jamais
-            // réutilisée — c'est ce qui rattrape une collecte échouée.
-            let reutilisable = !force
-                && cache
-                    .as_ref()
-                    .is_some_and(|c| c.stars == stars && !c.events.is_empty());
-            if reutilisable {
+            // Le nombre d'étoiles fait office d'empreinte : inchangé, rien à
+            // demander. Une fiche sans évènements n'est jamais réutilisée.
+            let a_historique = cache.as_ref().is_some_and(|c| !c.events.is_empty());
+            if !force && a_historique && cache.as_ref().is_some_and(|c| c.stars == stars) {
                 let events = cache.map(|c| c.events).unwrap_or_default();
                 let n = faits.fetch_add(1, Ordering::Relaxed) + 1;
                 prog(format!("{full} inchangé"), n, total);
                 return (i, Ok((events, BTreeMap::new())));
             }
+            // Sinon on complète l'historique par la fin au lieu de le
+            // reconstruire : une étoile de plus coûtait cinquante pages sur le
+            // dépôt le plus étoilé, elle en coûte une.
+            // ponytail: un désétoilage au milieu de l'historique n'est pas vu ;
+            // Maj+Actualiser (force) repagine tout et le rattrape.
+            let connus: Option<HashSet<Event>> = if force || !a_historique {
+                None
+            } else {
+                cache.as_ref().map(|c| c.events.iter().cloned().collect())
+            };
+            let base: Vec<Event> = if connus.is_some() {
+                cache.map(|c| c.events).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             prog(
                 format!("Étoiles de {full}…"),
                 faits.load(Ordering::Relaxed),
                 total,
             );
-            let res = stargazers(&client, &full).await;
+            let res = stargazers(&client, &full, connus.as_ref())
+                .await
+                .map(|(nouveaux, lieux)| (fusionner(base, nouveaux), lieux));
             let n = faits.fetch_add(1, Ordering::Relaxed) + 1;
             prog(format!("Étoiles de {full}…"), n, total);
             (i, res)
@@ -338,4 +409,60 @@ pub async fn collect(
         locations,
         errors: erreurs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(jour: u8, login: &str) -> Event {
+        (format!("2024-01-{jour:02}T00:00:00Z"), login.to_string())
+    }
+
+    /// Le recouvrement entre l'historique et la page remontée ne doit ni
+    /// dupliquer une étoile ni en perdre une.
+    #[test]
+    fn fusion_sans_doublon_ni_perte() {
+        let base = vec![ev(1, "a"), ev(2, "b")];
+        let nouveaux = vec![ev(2, "b"), ev(2, "c"), ev(3, "d")];
+        let out = fusionner(base, nouveaux);
+        assert_eq!(out.len(), 4, "{out:?}");
+        assert!(out.windows(2).all(|p| p[0].0 <= p[1].0), "{out:?}");
+        assert_eq!(out.last().unwrap().1, "d");
+    }
+
+    fn arc(jour: u8, login: &str) -> ArcStargazer {
+        ArcStargazer {
+            starred_at: ev(jour, login).0,
+            node: Some(ProfilStargazer {
+                login: login.to_string(),
+                location: None,
+            }),
+        }
+    }
+
+    /// Une étoile horodatée avant celle qu'on connaît déjà se classe dessous :
+    /// la pagination doit continuer malgré la présence d'une connue sur la
+    /// page, sinon l'étoile manque pour de bon.
+    #[test]
+    fn page_mi_connue_ne_stoppe_pas() {
+        let connus: HashSet<Event> = [ev(3, "recent")].into_iter().collect();
+        // Page DESC : la connue en tete, la retardataire juste dessous.
+        let desordre = vec![arc(3, "recent"), arc(2, "retardataire")];
+        assert!(page_a_du_nouveau(&desordre, &connus));
+        // Page entièrement connue : là, on s'arrête.
+        assert!(!page_a_du_nouveau(&[arc(3, "recent")], &connus));
+    }
+
+    /// Un compte supprimé n'a pas de profil : il ne doit pas passer pour une
+    /// étoile inconnue, sans quoi la pagination ne s'arrêterait jamais.
+    #[test]
+    fn compte_supprime_ne_relance_pas() {
+        let connus: HashSet<Event> = [ev(3, "recent")].into_iter().collect();
+        let fantome = ArcStargazer {
+            starred_at: ev(2, "x").0,
+            node: None,
+        };
+        assert!(!page_a_du_nouveau(&[arc(3, "recent"), fantome], &connus));
+    }
 }

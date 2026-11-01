@@ -27,8 +27,10 @@ async function apiTauri(path) {
   const [route, qs] = path.split('?');
   const cmd = COMMANDES[route];
   if (!cmd) return reponse(false, 404, { error: 'route inconnue' });
+  const params = new URLSearchParams(qs || '');
+  const repos = (params.get('repos') || '').split(',').filter(Boolean);
   const args = cmd === 'refresh'
-    ? { force: new URLSearchParams(qs || '').get('force') === '1' }
+    ? { force: params.get('force') === '1', repos: repos.length ? repos : null }
     : {};
   try {
     const value = await TAURI.core.invoke(cmd, args);
@@ -893,7 +895,14 @@ async function loadData() {
 
 async function refresh(force) {
   hideError();
-  await api('/api/refresh' + (force ? '?force=1' : ''), { method: 'POST' });
+  // Seuls les dépôts affichés sont repaginés : actualiser une courbe ne doit
+  // pas attendre les pages de tous les autres. Liste vide (ou tout coché) =
+  // tous les dépôts, comme avant.
+  const vis = visibleSeries().map((s) => s.key);
+  const sel = vis.length && vis.length < state.series.length
+    ? '&repos=' + vis.map(encodeURIComponent).join(',')
+    : '';
+  await api('/api/refresh?force=' + (force ? '1' : '0') + sel, { method: 'POST' });
   state.fetching = true;
   updateProgressUI({ state: 'running', message: 'Démarrage…', done: 0, total: 0 });
 }
