@@ -421,6 +421,14 @@ const bucketCount = (s, bk) =>
     ? countBetween(s.times, s.times[0] + bk.a * DAY, s.times[0] + bk.b * DAY)
     : countBetween(s.times, bk.a, bk.b);
 
+/** Le paquet qui contient x. Les barres sont placées selon le temps, pas sur
+ *  une grille régulière : découper la largeur en parts égales désignait la
+ *  voisine, jusqu'à une barre entière d'écart au bord droit du graphe. */
+const bucketAt = (buckets, x) => {
+  const i = buckets.findIndex((bk) => x < bk.b);
+  return i < 0 ? buckets.length - 1 : i;
+};
+
 function renderChart(animate) {
   const host = $('#chart');
   const w = host.clientWidth, h = host.clientHeight;
@@ -617,7 +625,7 @@ function onHover(evt) {
   } else {
     const { buckets } = chartCtx;
     const bw = pw / buckets.length;
-    const i = Math.max(0, Math.min(buckets.length - 1, Math.floor((px - M.left) / bw)));
+    const i = bucketAt(buckets, chartCtx.pxToX(px));
     const bk = buckets[i];
     const gx = chartCtx.xToPx(bk.a);
     // La bande seule : elle designe la periode survolee, sur toute la hauteur
